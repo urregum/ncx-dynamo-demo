@@ -1,0 +1,138 @@
+# dynamo-placeholder-workload.yaml
+#
+# Phase 2 placeholder workload — validates KAI + Grove gang scheduling
+# WITHOUT requiring the 9 GB vLLM worker image.
+#
+# Architecture modeled after Dynamo disaggregated inference:
+#   router      — HTTP frontend/router (1 pod, independent)
+#   prefill     — prefill workers (1 pod, ganged with decode)
+#   decode      — decode workers (1 pod, ganged with prefill)
+#
+# prefill + decode are grouped as a PodCliqueScalingGroup: they must schedule
+# together (gang) and scale together. This mirrors how Dynamo coordinates
+# disaggregated prefill/decode pools.
+#
+# Scheduler: kai-scheduler via schedulerName in podSpec.
+# ============================================================================
+apiVersion: grove.io/v1alpha1
+kind: PodCliqueSet
+metadata:
+  name: dynamo-demo
+  namespace: dynamo-demo
+  labels:
+    app.kubernetes.io/name: dynamo-demo
+    app.kubernetes.io/part-of: ncx-dynamo-demo
+    app.kubernetes.io/component: placeholder-workload
+spec:
+  replicas: 1
+  template:
+    cliques:
+      # -----------------------------------------------------------------------
+      # Router / Frontend — independent, does not gang with workers
+      # -----------------------------------------------------------------------
+      - name: router
+        spec:
+          roleName: router
+          replicas: 1
+          podSpec:
+            schedulerName: kai-scheduler
+            containers:
+              - name: router
+                image: nginx:latest
+                ports:
+                  - containerPort: 80
+                    name: http
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    memory: 128Mi
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: 80
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+
+      # -----------------------------------------------------------------------
+      # Prefill Workers — ganged with decode via PodCliqueScalingGroup below
+      # Prefer rack-01 for same-rack placement demo
+      # -----------------------------------------------------------------------
+      - name: prefill
+        spec:
+          roleName: prefill
+          replicas: 1
+          podSpec:
+            schedulerName: kai-scheduler
+            containers:
+              - name: prefill
+                image: nginx:latest
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    memory: 128Mi
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: 80
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+            affinity:
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 80
+                    preference:
+                      matchExpressions:
+                        - key: rack
+                          operator: In
+                          values: ["01"]
+
+      # -----------------------------------------------------------------------
+      # Decode Workers — ganged with prefill via PodCliqueScalingGroup below
+      # Prefer rack-01 to match prefill for same-rack baseline demo
+      # -----------------------------------------------------------------------
+      - name: decode
+        spec:
+          roleName: decode
+          replicas: 1
+          podSpec:
+            schedulerName: kai-scheduler
+            containers:
+              - name: decode
+                image: nginx:latest
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 64Mi
+                  limits:
+                    memory: 128Mi
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: 80
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+            affinity:
+              nodeAffinity:
+                preferredDuringSchedulingIgnoredDuringExecution:
+                  - weight: 80
+                    preference:
+                      matchExpressions:
+                        - key: rack
+                          operator: In
+                          values: ["01"]
+
+    # -------------------------------------------------------------------------
+    # PodCliqueScalingGroup: prefill + decode must schedule and scale together
+    # This is the core gang scheduling constraint for disaggregated inference
+    # -------------------------------------------------------------------------
+    podCliqueScalingGroups:
+      - name: inference-gang
+        cliqueNames:
+          - prefill
+          - decode
+        scaleConfig:
+          maxReplicas: 3

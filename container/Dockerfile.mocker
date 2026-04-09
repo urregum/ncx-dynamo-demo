@@ -1,0 +1,38 @@
+# Dockerfile.mocker
+#
+# Dynamo mocker worker image — no GPU required.
+#
+# Provides python3 -m dynamo.mocker (disaggregated prefill/decode simulation)
+# and python3 -m dynamo.frontend (HTTP router).
+#
+# The mocker is implemented in Rust (ai-dynamo-runtime, manylinux wheel) and
+# simulates vLLM-style KV cache scheduling, prefix caching, and timing without
+# requiring a GPU or real inference engine.
+#
+# Image: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1
+# ~500 MB compressed; practical for `docker save | ctr import` into kind nodes.
+#
+# Build:
+#   docker build -f container/Dockerfile.mocker -t dynamo-mocker:1.0.1 .
+#
+# Test:
+#   docker run --rm dynamo-mocker:1.0.1 python3 -m dynamo.mocker --help
+# ============================================================================
+
+FROM python:3.12-slim
+
+# ai-dynamo pulls in: ai-dynamo-runtime (Rust mocker/runtime, 32 MB wheel),
+# transformers (for AutoTokenizer), fastapi, and other Dynamo deps.
+# No CUDA dependency — ai-dynamo-runtime is a manylinux_2_28 wheel.
+RUN pip install --no-cache-dir ai-dynamo==1.0.1
+
+# HuggingFace cache location — matches the extraMount path in kind-config.yaml
+# (/root/.cache/huggingface). Tokenizer files are read from here at startup.
+ENV HF_HOME=/root/.cache/huggingface
+
+# Disable HF progress bars and telemetry in container environments
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+ENV HF_HUB_DISABLE_TELEMETRY=1
+
+# Default entrypoint shows usage; DGD manifest overrides command per component.
+CMD ["python3", "-m", "dynamo.mocker", "--help"]

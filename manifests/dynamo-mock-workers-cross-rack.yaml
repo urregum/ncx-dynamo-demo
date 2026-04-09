@@ -1,0 +1,133 @@
+# dynamo-mock-workers-cross-rack.yaml
+#
+# DynamoGraphDeployment: disaggregated mocker, cross-rack placement.
+#
+# Scenario B — Cross-rack (east-west hop):
+#   prefill required on rack-01, decode required on rack-02 (worker3).
+#   --kv-transfer-bandwidth 12.5  →  12.5 GB/s (simulates 100 Gbps inter-rack link).
+#   --speedup-ratio 0             →  no compute delay; KV transfer time dominates TTFT.
+#
+# For Qwen3-0.6B at ISL=512 tokens:
+#   Same-rack  (400 GB/s): KV transfer ≈ ~0.1 ms
+#   Cross-rack (12.5 GB/s): KV transfer ≈ ~3 ms
+# At ISL=4096 tokens the gap widens ~32x; use --isl 4096 in aiperf for clearest signal.
+#
+# Apply: kubectl apply -f manifests/dynamo-mock-workers-cross-rack.yaml
+#        (updates the existing dynamo-bench DGD in-place)
+# ============================================================================
+apiVersion: nvidia.com/v1alpha1
+kind: DynamoGraphDeployment
+metadata:
+  name: dynamo-bench
+  namespace: dynamo-demo
+  labels:
+    app.kubernetes.io/name: dynamo-bench
+    app.kubernetes.io/part-of: ncx-dynamo-demo
+    demo/scenario: cross-rack
+spec:
+  envs:
+    - name: HF_HUB_OFFLINE
+      value: "1"
+    - name: HF_HUB_DISABLE_PROGRESS_BARS
+      value: "1"
+    - name: HF_HOME
+      value: "/tmp"                  # Rust dynamo_llm::hub writes its own cache here (writable)
+    - name: HF_HUB_CACHE
+      value: "/root/.cache/huggingface"  # Python HF Hub reads from the mounted model cache
+
+  services:
+    # -------------------------------------------------------------------------
+    # Frontend — same as same-rack scenario; placement unconstrained
+    # Needs hf-cache to resolve tokenizer for KV-routing when workers register
+    # -------------------------------------------------------------------------
+    Frontend:
+      componentType: frontend
+      replicas: 1
+      extraPodSpec:
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        mainContainer:
+          image: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - python3 -m dynamo.frontend --router-mode kv --http-port 8000
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+              readOnly: true
+
+    # -------------------------------------------------------------------------
+    # Prefill worker — rack-01, reduced KV transfer bandwidth (100GbE inter-rack)
+    # -------------------------------------------------------------------------
+    prefill:
+      componentType: worker
+      subComponentType: prefill
+      replicas: 1
+      extraPodSpec:
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: rack
+                      operator: In
+                      values: ["01"]
+        mainContainer:
+          image: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              python3 -m dynamo.mocker
+              --disaggregation-mode prefill
+              --model-path /root/.cache/huggingface/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca
+              --model-name Qwen/Qwen3-0.6B
+              --speedup-ratio 0
+              --kv-transfer-bandwidth 12.5
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+              readOnly: true
+
+    # -------------------------------------------------------------------------
+    # Decode worker — rack-02 (cross-rack from prefill)
+    # -------------------------------------------------------------------------
+    decode:
+      componentType: worker
+      subComponentType: decode
+      replicas: 1
+      extraPodSpec:
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: rack
+                      operator: In
+                      values: ["02"]
+        mainContainer:
+          image: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              python3 -m dynamo.mocker
+              --disaggregation-mode decode
+              --model-path /root/.cache/huggingface/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca
+              --model-name Qwen/Qwen3-0.6B
+              --speedup-ratio 0
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+              readOnly: true

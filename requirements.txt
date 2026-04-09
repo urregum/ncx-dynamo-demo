@@ -1,0 +1,16 @@
+# Python dependencies for ncx-dynamo-demo
+#
+# Install into a virtual environment:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Or use the Makefile target: make install-aiperf
+#
+# Versions pinned from tested environment (2026-04-09).
+# Pre-commit also uses yamllint — install separately:
+#   pip install pre-commit && pre-commit install
+
+aiperf==0.7.0
+huggingface_hub==1.9.2
+hf_transfer==0.1.9

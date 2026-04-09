@@ -1,0 +1,31 @@
+# Virtual environment
+.venv/
+
+# HuggingFace model cache (large binary files, staged separately)
+models/hf-cache/
+
+# Benchmark artifacts (raw aiperf output; results/ contains curated examples)
+artifacts/
+
+# Extra aiperf output formats (results/ keeps only *.json summaries)
+results/*.csv
+results/*.jsonl
+results/logs/
+results/inputs.json
+results/*_server_metrics.json
+
+# Generated kind cluster config (contains host-specific absolute paths)
+infra/kind-config.yaml
+
+# IDE settings
+.vscode/
+
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+
+# Claude session files
+.claude/

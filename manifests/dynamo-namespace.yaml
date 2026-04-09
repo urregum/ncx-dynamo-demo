@@ -1,0 +1,10 @@
+# dynamo-namespace.yaml
+# Namespace for the Dynamo demo workload.
+# Separate from dynamo-system (operator) to follow KAI's recommendation
+# of not running workloads in the scheduler's own namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dynamo-demo
+  labels:
+    app.kubernetes.io/part-of: ncx-dynamo-demo

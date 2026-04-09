@@ -1,0 +1,14 @@
+driver:
+  enabled: false
+toolkit:
+  enabled: false
+validator:
+  enabled: false
+operator:
+  defaultRuntime: nvidia
+devicePlugin:
+  enabled: true
+dcgmExporter:
+  enabled: true
+gfd:
+  enabled: true

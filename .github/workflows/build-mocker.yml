@@ -1,0 +1,56 @@
+# build-mocker.yml
+#
+# Builds and publishes the dynamo-mocker container image to ghcr.io on changes
+# to container/Dockerfile.mocker, or on manual trigger.
+#
+# Image: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker
+# Tags:  1.0.1  (pinned, matches ai-dynamo package version)
+#        latest (always points to most recent build)
+# ============================================================================
+
+name: Build mocker image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - container/Dockerfile.mocker
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract ai-dynamo version from Dockerfile
+        id: version
+        run: |
+          VERSION=$(grep 'ai-dynamo==' container/Dockerfile.mocker | grep -oP '(?<=ai-dynamo==)[\d.]+')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: container/Dockerfile.mocker
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ env.IMAGE }}:latest
