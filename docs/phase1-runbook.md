@@ -24,15 +24,16 @@ make validate-prereqs
 - Kind v0.31.0+
 - kubectl v1.34+
 - Helm v3.20+
-- nvidia-container-toolkit 1.19+
 
-**Note on GPU requirement:**
-The current cluster template (`kind-config.yaml.tpl`) mounts `/dev/nvidia*` device files from the host at cluster creation time. A GPU must be present for `kind create cluster` to succeed, even though no mocker pod uses it. The mocker workload itself is GPU-free; a no-GPU cluster template is a planned improvement.
+**GPU (optional for mocker demo):**
+`make phase1` auto-detects GPU presence at `make kind-config` time:
+- **GPU present** (`/dev/nvidia0` exists): uses `infra/kind-config-gpu.yaml.tpl` — mounts GPU device files into Kind nodes. Requires `nvidia-container-toolkit 1.19+`.
+- **No GPU**: uses `infra/kind-config-no-gpu.yaml.tpl` — no device mounts. Mocker workload runs identically in either case.
 
 **Expected output:**
 ```
 ✓ All prerequisites installed
-GPU 0: NVIDIA GeForce RTX 3070 Ti   # present if GPU detected; warning (not error) if absent
+==> GPU detected — using GPU cluster template   # or: No GPU detected — using no-GPU cluster template
 ```
 
 ---

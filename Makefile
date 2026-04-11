@@ -82,9 +82,15 @@ phase1: validate-prereqs cluster-up fix-inotify-limits apply-runtimeclass advert
 	@echo "Run './scripts/validate-phase1.sh' to verify all checks pass."
 	@echo "Next step: make phase2"
 
-kind-config: ## Generate infra/kind-config.yaml from template (sets REPO_ROOT to current directory)
-	@echo "==> Generating infra/kind-config.yaml (REPO_ROOT=$(CURDIR))..."
-	@REPO_ROOT="$(CURDIR)" envsubst < infra/kind-config.yaml.tpl > infra/kind-config.yaml
+kind-config: ## Generate infra/kind-config.yaml (auto-selects GPU or no-GPU cluster template)
+	@if [ -e /dev/nvidia0 ]; then \
+		TPL=infra/kind-config-gpu.yaml.tpl; \
+		echo "==> GPU detected — using GPU cluster template"; \
+	else \
+		TPL=infra/kind-config-no-gpu.yaml.tpl; \
+		echo "==> No GPU detected — using no-GPU cluster template (mocker-only)"; \
+	fi; \
+	REPO_ROOT="$(CURDIR)" envsubst < $$TPL > infra/kind-config.yaml
 	@echo "✓ infra/kind-config.yaml written"
 
 cluster-up: kind-config ## Create kind cluster with rack topology

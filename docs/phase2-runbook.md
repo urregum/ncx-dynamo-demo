@@ -20,8 +20,33 @@ From Phase 1:
 - ✅ Rack topology labels
 
 New for Phase 2:
-- NGC API credentials configured via `docker login nvcr.io` (for pulling operator images)
+- NGC API credentials (see setup below) — required before running `make phase2`
 - Qwen3-0.6B model pre-staged: `make download-model` (for Phase 3)
+
+### NGC API Key Setup
+
+The Dynamo operator image (`nvcr.io/nvidia/ai-dynamo/kubernetes-operator`) is hosted on NVIDIA's NGC registry. Two forms of authentication are required:
+
+**1. Docker login on host** — needed for `make phase2` to pull the operator image:
+
+```bash
+docker login nvcr.io -u '$oauthtoken' --password <your-ngc-api-key>
+```
+
+**2. Kubernetes imagePullSecret** — needed for pods to pull NGC images at runtime.
+`make phase2` creates this automatically by calling `scripts/setup-ngc-secret.sh`.
+The script reads your key from a file:
+
+```bash
+echo '<your-ngc-api-key>' > ~/Downloads/ngcapikey
+```
+
+Get an NGC API key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys) (free NVIDIA developer account required).
+
+> The `NGC_KEY_FILE` environment variable overrides the default path if you prefer a different location:
+> ```bash
+> export NGC_KEY_FILE=~/.config/ngcapikey
+> ```
 
 ---
 
@@ -36,11 +61,11 @@ make phase2
 **Time:** ~3-5 minutes
 
 This runs all steps:
-1. Pre-pull Dynamo operator image into kind nodes
+1. Pre-pull Dynamo operator image into kind nodes (requires `docker login nvcr.io`)
 2. Install KAI Scheduler (Helm)
 3. Install Grove (Helm)
 4. Install Dynamo platform (Helm from cloned source)
-5. Create NGC imagePullSecret (for operator images)
+5. Create NGC imagePullSecret in `dynamo-system` and `dynamo-demo` namespaces (reads `~/Downloads/ngcapikey`)
 6. Deploy placeholder PodCliqueSet workload
 
 ---

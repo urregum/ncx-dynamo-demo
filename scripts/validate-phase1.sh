@@ -81,18 +81,21 @@ echo ""
 
 # Check 5: GPU device mounts
 echo "[5/7] Checking GPU device mounts..."
-MOUNT_FAILURES=0
-for node in ncx-demo-cluster-worker ncx-demo-cluster-worker2 ncx-demo-cluster-worker3; do
-    if ! docker exec $node test -c /dev/nvidia0 2>/dev/null; then
-        check_fail "$node missing /dev/nvidia0"
-        ((MOUNT_FAILURES++))
-    fi
-done
-
-if [ "$MOUNT_FAILURES" -eq 0 ]; then
-    check_pass "GPU devices mounted in all worker nodes"
+if [ ! -e /dev/nvidia0 ]; then
+    check_pass "GPU device mount check skipped — no GPU on host (mocker-only cluster)"
 else
-    check_fail "$MOUNT_FAILURES node(s) missing GPU device mounts"
+    MOUNT_FAILURES=0
+    for node in ncx-demo-cluster-worker ncx-demo-cluster-worker2 ncx-demo-cluster-worker3; do
+        if ! docker exec $node test -c /dev/nvidia0 2>/dev/null; then
+            check_fail "$node missing /dev/nvidia0"
+            ((MOUNT_FAILURES++))
+        fi
+    done
+    if [ "$MOUNT_FAILURES" -eq 0 ]; then
+        check_pass "GPU devices mounted in all worker nodes"
+    else
+        check_fail "$MOUNT_FAILURES node(s) missing GPU device mounts"
+    fi
 fi
 echo ""
 

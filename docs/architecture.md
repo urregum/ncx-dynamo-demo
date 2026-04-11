@@ -137,8 +137,8 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 - Kind (v0.31.0+)
 - kubectl (v1.34+)
 - Helm (v3.20+)
-- nvidia-container-toolkit (1.19+) — required for Kind node GPU device mounts
-- NVIDIA GPU with drivers — required by the current cluster template (`kind-config.yaml.tpl` mounts `/dev/nvidia*` at cluster creation time); the mocker workload itself does not use the GPU, but the cluster setup does. A GPU-free cluster template is a planned improvement.
+- NGC API key — required for Phase 2 operator image pull and Kubernetes imagePullSecret
+- nvidia-container-toolkit (1.19+) — required only when GPU is present; `make kind-config` auto-selects the GPU or no-GPU cluster template based on `/dev/nvidia0` presence
 
 ### Installation
 

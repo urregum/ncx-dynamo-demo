@@ -2,7 +2,7 @@
 
 A lightweight, local Kubernetes demonstration of **NVIDIA Dynamo** disaggregated inference — showing gang scheduling, rack-aware placement, and latency impact via benchmarking.
 
-**Core Demo:**
+**Disaggregated Inference Foundations:**
 - Deploy a 4-node Kind cluster with rack topology
 - Install KAI Scheduler + Grove + Dynamo platform
 - Run two placement scenarios (same-rack vs cross-rack)
@@ -21,8 +21,23 @@ A lightweight, local Kubernetes demonstration of **NVIDIA Dynamo** disaggregated
 make validate-prereqs
 ```
 
-Requires: Docker, Kind, kubectl, Helm, nvidia-container-toolkit, GPU with drivers  
-Note: the mocker workload does not use the GPU, but the current cluster template mounts GPU devices at creation time. A GPU-free cluster template is a planned improvement.
+Requires: Docker, Kind, kubectl, Helm
+
+**GPU:** `make phase1` auto-detects GPU presence at cluster creation time. With a GPU and `nvidia-container-toolkit` installed, Kind nodes get GPU device passthrough. Without a GPU, the cluster runs in mocker-only mode. Either way, the mocker workload does not consume the GPU.
+
+**NGC API Key (required for Phase 2):**
+
+The Dynamo operator image is hosted on NVIDIA's NGC registry. Before running `make phase2`:
+
+1. Get a key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys)
+2. Authenticate Docker on the host (for `make phase2` to pull the operator image):
+   ```bash
+   docker login nvcr.io -u '$oauthtoken' --password <your-key>
+   ```
+3. Save the key for the Kubernetes imagePullSecret (`make phase2` reads this automatically):
+   ```bash
+   echo '<your-key>' > ~/Downloads/ngcapikey
+   ```
 
 ### 2. Create Cluster (Phase 1)
 

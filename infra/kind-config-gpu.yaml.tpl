@@ -5,6 +5,8 @@ name: ncx-demo-cluster
 # ==============================================================================
 # NCX Dynamo Demo Cluster Configuration - WITH GPU SUPPORT
 # ==============================================================================
+# Selected automatically by `make kind-config` when /dev/nvidia0 is present.
+#
 # This cluster provides real GPU access to pods by mounting:
 #   1. GPU device files (/dev/nvidia*)
 #   2. NVIDIA container runtime binaries
