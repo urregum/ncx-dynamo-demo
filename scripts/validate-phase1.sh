@@ -75,7 +75,7 @@ if [ "$GPU_NODES" -eq 3 ]; then
     check_pass "GPU resources advertised on all 3 worker nodes"
 else
     check_fail "GPU resources found on $GPU_NODES nodes (expected 3)"
-    echo "   Run: Manual step 4 from docs/phase1-setup.md"
+    echo "   Run: make advertise-gpu-resources  (see docs/phase1-runbook.md)"
 fi
 echo ""
 
@@ -135,6 +135,6 @@ else
     echo -e "${RED}✗ Phase 1 validation FAILED${NC}"
     echo ""
     echo "Please fix the failed checks before proceeding to Phase 2"
-    echo "See docs/phase1-setup.md for troubleshooting guidance"
+    echo "See docs/phase1-runbook.md for troubleshooting guidance"
     exit 1
 fi

@@ -67,7 +67,7 @@ nodes:
 
       # -----------------------------------------------------------------------
       # HuggingFace Model Cache (pre-staged for demo)
-      # Mounts host HF cache into nodes so vLLM workers find models locally
+      # Mounts host HF cache into nodes so mocker workers find the tokenizer locally
       # without downloading at pod startup.
       #
       # REPO_ROOT is substituted by: make kind-config   (uses current directory)

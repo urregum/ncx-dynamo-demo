@@ -90,7 +90,9 @@ kubectl get pods -n dynamo-system
 ```bash
 kubectl get pods -n dynamo-demo -o wide
 # Should show 3 pods: router, prefill, decode
-# All should have same grove.io/podgang label (gang scheduling confirmed)
+# These are nginx placeholder pods (not Dynamo workers) — names chosen to mirror
+# the Phase 3 component roles. All should share the same grove.io/podgang label,
+# confirming gang scheduling is working before real workloads are deployed.
 ```
 
 ---

@@ -81,18 +81,20 @@ make download-mocker-image
 
 **Step 5: Deploy DGD (choose scenario)**
 
-Same-rack:
+Both scenarios use gang scheduling — KAI ensures frontend, prefill, and decode all start atomically. The difference is placement: in a real deployment with available same-rack capacity, KAI would always produce the same-rack result. We force both placements to demonstrate the latency cost that topology-aware scheduling prevents.
+
+Same-rack (KAI-optimal placement):
 ```bash
 make phase3-same-rack
 # Applies dynamo-mock-workers-same-rack.yaml
-# Prefill + Decode both on rack-01, 400 GB/s KV bandwidth
+# Prefill + Decode both on rack-01, 400 GB/s KV bandwidth (NVLink analog)
 ```
 
-Or cross-rack:
+Cross-rack (forced suboptimal placement):
 ```bash
 make phase3-cross-rack
 # Applies dynamo-mock-workers-cross-rack.yaml
-# Prefill on rack-01, Decode on rack-02, 12.5 GB/s KV bandwidth
+# Prefill on rack-01, Decode on rack-02, 12.5 GB/s KV bandwidth (100 GbE analog)
 ```
 
 **Step 6: Validate DGD**
@@ -124,6 +126,26 @@ make compare-results
 
 ---
 
+## How the Mocker Simulates Latency
+
+The mocker (`dynamo.mocker`, Rust-based) does not run real inference. Instead, it:
+
+1. **Suppresses GPU compute** — `--speedup-ratio 0` means infinite speedup; no simulation of prefill or decode compute time.
+2. **Injects a real KV transfer delay** — when a prefill worker completes a request, it sleeps for a duration proportional to the KV cache size and the configured bandwidth:
+   ```
+   delay_ms = num_input_tokens × kv_bytes_per_token / (bandwidth_GB_s × 1e9) × 1000
+   ```
+3. **Auto-computes KV size from model config** — `kv_bytes_per_token = num_layers × 2 × num_kv_heads × head_dim × dtype_bytes`. For Qwen3-0.6B (28 layers, 8 KV heads, 64 head_dim, bfloat16): **57,344 bytes/token**.
+4. **Uses Linux timerfd for sleep precision** — the delay is a real async sleep, not an approximation.
+
+At ISL=4096 (~235 MB KV cache):
+- 400 GB/s → ~0.6 ms modeled transfer
+- 12.5 GB/s → ~18.8 ms modeled transfer
+
+The ~8.8 ms p50 baseline in the same-rack result is container networking overhead (port-forward + Kind CNI), not mocker behavior. The delta between scenarios reflects the transfer formula directly.
+
+---
+
 ## Benchmark Characteristics
 
 ### Default Settings
@@ -148,7 +170,7 @@ make compare-results
 - p99 latency: ~29.9 ms
 - Throughput: ~136 req/s (2.7× lower)
 
-**Key Insight:** Placement dominates latency. KV transfer time scales linearly with cache size (ISL) and inversely with bandwidth. This demo clearly shows the effect.
+**Key Insight:** Placement dominates latency. KV transfer time scales linearly with cache size (ISL) and inversely with bandwidth. The same-rack p50 of ~9.4 ms includes ~8.8 ms of container networking baseline — the modeled KV transfer at 400 GB/s is only ~0.6 ms. The ~18.8 ms delta between scenarios matches the formula directly: same KV cache, 32× lower bandwidth.
 
 ---
 
@@ -176,7 +198,7 @@ DynamoGraphDeployment resource:
 - **Decode worker:**
   - Affinity: `rack=01` (same as prefill)
   - `--disaggregation-mode decode`
-  - No bandwidth arg (inherits from prefill's configured link)
+  - No bandwidth arg; transfer cost is modeled on the prefill side
 
 ### `manifests/dynamo-mock-workers-cross-rack.yaml`
 

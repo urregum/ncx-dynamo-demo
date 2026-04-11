@@ -21,7 +21,8 @@ A lightweight, local Kubernetes demonstration of **NVIDIA Dynamo** disaggregated
 make validate-prereqs
 ```
 
-Requires: Docker, Kind, kubectl, Helm, nvidia-container-toolkit, GPU with drivers
+Requires: Docker, Kind, kubectl, Helm, nvidia-container-toolkit, GPU with drivers  
+Note: the mocker workload does not use the GPU, but the current cluster template mounts GPU devices at creation time. A GPU-free cluster template is a planned improvement.
 
 ### 2. Create Cluster (Phase 1)
 
@@ -73,8 +74,8 @@ Three-phase setup:
 
 ### Phase 1: Cluster
 - Kind cluster (1 control plane + 3 workers)
-- Rack topology (rack-01, rack-02) for placement simulation
-- GPU device passthrough via NVIDIA container runtime
+- Rack topology (rack-01, rack-02) — simulates the node labels real cluster infrastructure applies for KAI topology-aware placement
+- GPU scaffolding (RuntimeClass + fake resource advertisement) satisfies Dynamo operator requirements; no GPU is consumed by the mocker workload
 - No GPU Operator — keeps setup lightweight
 
 ### Phase 2: Scheduling Stack
@@ -261,7 +262,8 @@ KAI Scheduler ensures all pods in a gang (prefill + decode + frontend) start tog
 
 ### Scaling
 - Suitable for 3-10 pod workloads
-- Single shared RTX 3070 Ti (consumer GPU)
+- Mocker workers do not use the GPU; no resource contention in the current demo
+- A real inference extension would be constrained by available GPU (single RTX 3070 Ti on the reference machine)
 - Not intended for production deployment
 
 ---
@@ -297,12 +299,12 @@ MIT License — See [`LICENSE`](LICENSE)
 
 ## Acknowledgments
 
-Built on:
-- **NVIDIA Dynamo** — Disaggregated inference platform
-- **KAI Scheduler** — Kubernetes native gang scheduler
-- **Grove** — PodCliqueSet orchestration
-- **Kind** — Local Kubernetes for testing
-- **AIPerf** — Benchmarking tool
+Built on open source projects (all Apache 2.0 licensed):
+- **[NVIDIA Dynamo](https://github.com/ai-dynamo/dynamo)** — Disaggregated inference platform
+- **[KAI Scheduler](https://github.com/NVIDIA/KAI-Scheduler)** — Kubernetes native gang scheduler
+- **[Grove](https://github.com/NVIDIA/grove)** — PodCliqueSet orchestration
+- **[Kind](https://github.com/kubernetes-sigs/kind)** — Local Kubernetes for testing
+- **[AIPerf](https://github.com/ai-dynamo/dynamo/tree/main/benchmarks/aiperf)** — Benchmarking tool (part of the Dynamo project)
 
 ---
 

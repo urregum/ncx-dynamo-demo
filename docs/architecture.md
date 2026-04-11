@@ -55,28 +55,46 @@ This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment
 **Data Flow:**
 1. User applies `DynamoGraphDeployment` (DGD) CRD
 2. Dynamo operator creates 3 pod templates: Frontend, Prefill Worker, Decode Worker
-3. Each template becomes a `PodClique` (via Grove); related cliches form `PodCliqueSet`
-4. KAI Scheduler enforces gang scheduling: all pods in cliches start together or none start
+3. Each template becomes a `PodClique` (via Grove); related cliques form `PodCliqueSet`
+4. KAI Scheduler enforces gang scheduling: all pods in cliques start together or none start — this applies to both the Phase 2 placeholder and the Phase 3 DGD workload
 5. NATS bus coordinates inter-pod communication (worker discovery, request routing)
+
+### Component Topology Rationale
+
+This demo deploys the minimum viable disaggregated configuration: **1 frontend, 1 prefill worker, 1 decode worker**.
+
+In production, Dynamo's planner dynamically computes prefill and decode replica counts based on traffic (input/output sequence length distribution, throughput targets, and ITL SLA). Decode workers typically outnumber prefill workers because token generation is the longer operation. No fixed ratio is prescribed upstream.
+
+For this demo, production asymmetry is not meaningful — there is no real compute to model, and the mocker's latency is entirely determined by KV transfer delay, not worker count. The 1:1 topology cleanly isolates the placement variable: one prefill per scenario, one decode worker placed on the target rack.
+
+This topology has no bearing on a future KVBM extension, which concerns cache block management within a single worker's GPU memory rather than prefill/decode ratios.
+
+---
 
 ### Layer 3: Workload (Mock Dynamo Mocker)
 
 **Image:** `ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1`
 
 **Components:**
-- **Frontend** (Python + KV-aware router)
+- **Frontend** (Python + integrated KV router)
   - Listens on HTTP port 8000
-  - Routes requests to prefill/decode workers based on KV state
+  - Routes requests to prefill/decode workers based on KV cache overlap (`--router-mode kv`)
+  - The router is not a separate pod — it is an integrated mode of the frontend process, consistent with upstream Dynamo's implementation
   - Resolves tokenizer from HF cache for KV routing logic
   
 - **Prefill Worker** (Rust-based mock)
   - Simulates KV-cache production via `--disaggregation-mode prefill`
-  - KV transfer parameterized by `--kv-transfer-bandwidth` (GB/s)
-  - `--speedup-ratio 0` suppresses compute delay; timing dominated by transfer
+  - On completing a request, injects a real sleep delay modeling KV transfer to the decode worker:
+    ```
+    delay_ms = num_input_tokens × kv_bytes_per_token / (bandwidth_GB_s × 1e9) × 1000
+    ```
+  - `kv_bytes_per_token` is auto-computed from model config (`num_layers × 2 × num_kv_heads × head_dim × dtype_bytes`)
+  - `--speedup-ratio 0` suppresses all GPU compute delays; only the KV transfer handoff delay remains
+  - `--kv-transfer-bandwidth` is set only on the prefill worker — it models the cost of transferring the cache *from* prefill *to* decode
 
 - **Decode Worker** (Rust-based mock)
   - Consumes KV cache via `--disaggregation-mode decode`
-  - No bandwidth arg; inherits from prefill's configured link
+  - No bandwidth arg; the transfer cost is modeled on the prefill side as the cost of moving the KV cache to the decode worker
 
 ---
 
@@ -119,8 +137,8 @@ This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment
 - Kind (v0.31.0+)
 - kubectl (v1.34+)
 - Helm (v3.20+)
-- nvidia-container-toolkit (1.19+)
-- NVIDIA GPU with drivers (RTX 3070 Ti used; consumer GPUs sufficient)
+- nvidia-container-toolkit (1.19+) — required for Kind node GPU device mounts
+- NVIDIA GPU with drivers — required by the current cluster template (`kind-config.yaml.tpl` mounts `/dev/nvidia*` at cluster creation time); the mocker workload itself does not use the GPU, but the cluster setup does. A GPU-free cluster template is a planned improvement.
 
 ### Installation
 
@@ -171,10 +189,12 @@ Plus: Model name must include namespace slash (`Qwen/Qwen3-0.6B`) so Rust cache 
 
 ### 3. Rack Topology via Labels
 **Why Kubernetes labels, not actual network config?**
-- KAI + Grove respect `rack=` labels for placement hints
-- Pod affinity constraints naturally align with zone/region labels
-- Avoids needing tc/netem for packet loss/latency injection
-- Focuses demo on scheduling logic, not network simulation
+
+In a real Superpod environment, nodes are labeled with their rack and NVLink domain during cluster provisioning. KAI Scheduler is designed to use these labels for topology-aware PodClique placement — keeping gang members within the same rack to minimize KV transfer cost.
+
+This demo applies the same mechanism: `rack=01` / `rack=02` labels on Kind worker nodes, and node affinity in the DGD manifests, mirror exactly what production infrastructure would provide. The mocker then parameterizes the bandwidth to match each topology.
+
+Both placement scenarios are **forced via node affinity** rather than left to the scheduler. Without a prior workload to create load imbalance, KAI would always schedule optimally (same-rack) — so forcing cross-rack is necessary to demonstrate the penalty that topology-aware placement is designed to prevent.
 
 ### 4. NATS for Coordination
 Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS to:
@@ -208,13 +228,19 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 - Production network characteristics (simulated via bandwidth param)
 
 ### Scaling Limitations
-- Single RTX 3070 Ti shared by all workers
-- Prefill + decode pods may contend for GPU if both try to access it
 - Kind cluster suitable for 3-10 pod workloads; scales poorly beyond
+- Mocker workers do not use the GPU; no resource contention between pods in the current demo
+- A real inference workload would be constrained by the single RTX 3070 Ti (see [Future Extensions](#future-extensions))
 
 ---
 
 ## Future Extensions
+
+### If You Later Add KV Block Manager (KVBM) Demo
+- Extend a decode worker with KVBM configuration (block eviction policy, prefix cache size)
+- Demonstrates cache block management and prefix reuse on a single GPU without requiring multi-GPU transfer paths
+- NIXL (NVIDIA Interconnect Library — the real KV transfer substrate using NVLink/RDMA) is not applicable in this environment; the mocker simulates its latency consequence only
+- Does not require changes to the current 1:1 prefill/decode topology
 
 ### If You Later Add Real Inference
 - Replace mocker image with vLLM runtime

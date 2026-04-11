@@ -25,12 +25,14 @@ make validate-prereqs
 - kubectl v1.34+
 - Helm v3.20+
 - nvidia-container-toolkit 1.19+
-- GPU with drivers (RTX 3070 Ti or equivalent)
+
+**Note on GPU requirement:**
+The current cluster template (`kind-config.yaml.tpl`) mounts `/dev/nvidia*` device files from the host at cluster creation time. A GPU must be present for `kind create cluster` to succeed, even though no mocker pod uses it. The mocker workload itself is GPU-free; a no-GPU cluster template is a planned improvement.
 
 **Expected output:**
 ```
 ✓ All prerequisites installed
-GPU 0: NVIDIA GeForce RTX 3070 Ti
+GPU 0: NVIDIA GeForce RTX 3070 Ti   # present if GPU detected; warning (not error) if absent
 ```
 
 ---
@@ -70,7 +72,9 @@ done
 # 4. Apply NVIDIA RuntimeClass
 kubectl apply -f manifests/nvidia-runtimeclass.yaml
 
-# 5. Advertise GPU resources
+# 5. Advertise GPU resources (patches fake nvidia.com/gpu capacity onto Kind nodes
+#    so the Dynamo operator's GPU resource requirements are satisfied — no real GPU
+#    is consumed by the mocker workload)
 bash scripts/advertise-gpu-resources.sh
 ```
 
