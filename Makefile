@@ -62,7 +62,7 @@ validate-prereqs: ## Validate system has required tools
 	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker not found"; exit 1; }
 	@echo "✓ All prerequisites installed"
 	@echo ""
-	@echo "==> Checking for NVIDIA GPU (optional for mockers)..."
+	@echo "==> Checking for NVIDIA GPU (not required for demo with mockers only)..."
 	@if command -v nvidia-smi >/dev/null 2>&1; then \
 		nvidia-smi -L | head -1; \
 	else \
@@ -79,7 +79,7 @@ phase1: validate-prereqs cluster-up fix-inotify-limits apply-runtimeclass advert
 	@echo "Cluster: $(CLUSTER_NAME)"
 	@kubectl get nodes -L rack
 	@echo ""
-	@echo "Run './scripts/validate-phase1.sh' to verify all checks pass."
+	@echo "Run 'make validate-phase1' to verify all checks pass."
 	@echo "Next step: make phase2"
 
 kind-config: ## Generate infra/kind-config.yaml (auto-selects GPU or no-GPU cluster template)
@@ -149,7 +149,7 @@ phase2: validate-phase1 prepull-operator install-schedulers install-dynamo-platf
 	@echo "Installed Helm releases:"
 	@helm list -A
 	@echo ""
-	@echo "Run './scripts/validate-phase2.sh' to verify all checks pass."
+	@echo "Run 'make validate-phase2' to verify all checks pass."
 	@echo "Next step: make phase3"
 
 validate-phase1: ## Validate Phase 1 cluster is ready
@@ -214,11 +214,19 @@ deploy-workload: ## Deploy placeholder DynamoInferenceService workload (nginx, v
 	@kubectl apply -f manifests/dynamo-namespace.yaml
 	@kubectl apply -f manifests/dynamo-placeholder-workload.yaml
 	@echo "==> Waiting for gang scheduling (up to 2 minutes)..."
-	@kubectl wait --for=condition=Ready pods \
-		-l app.kubernetes.io/part-of=ncx-dynamo-demo \
-		-n $(NS_WORKLOAD) --timeout=120s || \
-		(echo "⚠ Pods not ready — check: kubectl get pods -n $(NS_WORKLOAD)"; exit 1)
-	@echo "✓ Workload deployed and gang-scheduled"
+	@for i in $$(seq 1 40); do \
+		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep -c "Running" || echo 0); \
+		if [ "$$RUNNING" -ge 3 ]; then \
+			echo "✓ Workload gang-scheduled ($$RUNNING pods Running)"; \
+			break; \
+		fi; \
+		if [ "$$i" -eq 40 ]; then \
+			echo "⚠ Pods not ready after 80s — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			exit 1; \
+		fi; \
+		printf "  Pods Running: $$RUNNING/3 (attempt $$i/40)\\r"; \
+		sleep 2; \
+	done
 
 # ============================================================================
 # Phase 3: Mocker Workers + AIPerf Benchmarking
@@ -366,6 +374,7 @@ run-benchmark: ## Benchmark active DGD via port-forward; saves JSON to results/<
 	fi; \
 	echo "  Scenario: $$SCENARIO → $(RESULTS_DIR)/$$SCENARIO.json"; \
 	echo "==> Port-forwarding frontend service to localhost:8000..."; \
+	pkill -f "kubectl port-forward.*dynamo-bench-frontend" 2>/dev/null || true; \
 	kubectl port-forward svc/dynamo-bench-frontend -n $(NS_WORKLOAD) 8000:8000 &>/tmp/pf.log & \
 	PF_PID=$$!; \
 	sleep 3; \
@@ -394,21 +403,29 @@ compare-results: ## Print side-by-side latency table from results/ (same-rack vs
 	@printf " %-16s %14s %14s %16s\n" "Scenario" "Latency p50" "Latency p99" "Throughput"
 	@printf " %-16s %14s %14s %16s\n" "" "(ms)" "(ms)" "(req/s)"
 	@echo "----------------------------------------------------------------"
-	@for f in $(RESULTS_DIR)/same-rack.json $(RESULTS_DIR)/cross-rack.json; do \
-	  SCENARIO=$$(basename $$f .json); \
-	  if [ -f $$f ]; then \
-	    $(CURDIR)/.venv/bin/python3 -c "\
-import json; d=json.load(open('$$f')); \
-rl=d.get('request_latency',{}); \
-p50=round(rl.get('p50',0),2); \
-p99=round(rl.get('p99',0),2); \
-tput=round(d.get('request_throughput',{}).get('avg',0),1); \
-print(f' {\"$$SCENARIO\":<16} {p50:>12.2f}   {p99:>12.2f}   {tput:>14.1f}') \
-" 2>/dev/null || echo " $$SCENARIO  (could not parse results)"; \
-	  else \
-	    printf " %-16s  %s\n" "$$SCENARIO" "(no results — run: make phase3-$$SCENARIO run-benchmark)"; \
-	  fi; \
-	done
+	@$(CURDIR)/.venv/bin/python3 -c "\
+import json, os; \
+rd = '$(RESULTS_DIR)'; \
+rows = []; \
+for name in ['same-rack', 'cross-rack']: \
+    f = os.path.join(rd, name + '.json'); \
+    if not os.path.exists(f): \
+        print(f' {name:<16}  (no results — run: make phase3-' + name + ' run-benchmark)'); \
+        continue; \
+    d = json.load(open(f)); \
+    p50 = round(d.get('request_latency', {}).get('p50', 0), 2); \
+    p99 = round(d.get('request_latency', {}).get('p99', 0), 2); \
+    tput = round(d.get('request_throughput', {}).get('avg', 0), 1); \
+    rows.append((name, p50, p99, tput)); \
+    print(f' {name:<16} {p50:>12.2f}   {p99:>12.2f}   {tput:>14.1f}'); \
+if len(rows) == 2: \
+    sr, cr = rows; \
+    p50r = cr[1]/sr[1] if sr[1] else 0; \
+    p99r = cr[2]/sr[2] if sr[2] else 0; \
+    tputr = cr[3]/sr[3] if sr[3] else 0; \
+    print('----------------------------------------------------------------'); \
+    print(f' {\"Cross/Same\":<16} {p50r:>11.2f}x   {p99r:>11.2f}x   {tputr:>13.2f}x'); \
+" 2>/dev/null || echo " (error reading results — check .venv and results/ directory)"
 	@echo "================================================================"
 	@echo ""
 

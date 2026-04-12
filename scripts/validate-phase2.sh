@@ -140,7 +140,7 @@ if [ "${FAIL}" -eq 0 ]; then
   echo "  Grove          → PodCliqueSet → PodGang orchestration"
   echo "  Dynamo         → DynamoGraphDeployment CRD (ready for Phase 3)"
   echo ""
-  echo "Next step: make phase3 (pull vLLM image, deploy real workers, run AIPerf)"
+  echo "Next step: make phase3 (pull mocker image, deploy Dynamo workers, run AIPerf)"
   exit 0
 else
   echo -e "${RED}✗ Phase 2 validation FAILED (${FAIL} checks)${NC}"
