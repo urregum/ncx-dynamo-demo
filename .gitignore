@@ -7,12 +7,14 @@ models/hf-cache/
 # Benchmark artifacts (raw aiperf output; results/ contains curated examples)
 artifacts/
 
-# Extra aiperf output formats (results/ keeps only *.json summaries)
+# aiperf run output (benchmark results go here; reference examples are in results/examples/)
+results/*.json
 results/*.csv
 results/*.jsonl
 results/logs/
 results/inputs.json
 results/*_server_metrics.json
+!results/examples/
 
 # Generated kind cluster config (contains host-specific absolute paths)
 infra/kind-config.yaml

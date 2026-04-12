@@ -2,18 +2,17 @@
 
 ## Overview
 
-Phase 1 creates a Kind cluster (4 nodes) with GPU support and rack topology labels. This is the foundation for the scheduling stack and Dynamo workloads.
+Phase 1 creates a Kind cluster (4 nodes) with rack topology labels. This is the foundation for the scheduling stack and Dynamo workloads.
 
 **Cluster Topology:**
 - 1 control plane
 - 3 workers: 2 in rack-01, 1 in rack-02
-- All workers share one RTX 3070 Ti via NVIDIA container runtime
 
 ---
 
 ## Prerequisites
 
-Run this first to validate your system:
+`make phase1` automatically runs `make validate-prereqs` before doing anything — running it manually first gives explicit visibility into your system state before any cluster is created, which is useful on first setup.
 
 ```bash
 make validate-prereqs
@@ -33,14 +32,18 @@ make validate-prereqs
 **Expected output:**
 ```
 ✓ All prerequisites installed
-==> GPU detected — using GPU cluster template   # or: No GPU detected — using no-GPU cluster template
+
+==> Checking for NVIDIA GPU (not required for demo with mockers only)...
+GPU 0: NVIDIA GeForce RTX 3070 Ti (UUID: ...)   # if GPU present
+# or:
+⚠ No NVIDIA GPU detected - will use software mockers only
 ```
+
+The template selection message (`==> GPU detected — using GPU cluster template`) appears later, during `make phase1` when `kind-config` runs.
 
 ---
 
 ## Execution
-
-### Automated (Recommended)
 
 ```bash
 make phase1
@@ -53,37 +56,13 @@ This runs in sequence:
 4. `make apply-runtimeclass` — Deploy nvidia RuntimeClass
 5. `make advertise-gpu-resources` — Advertise GPU capacity
 
-**Time:** ~3-5 minutes (mostly waiting for nodes to boot)
+**Time:** ~30 seconds with Docker image layers already cached; up to 2 minutes on a completely fresh system while Kind pulls node images.
 
-### Manual Steps (for debugging)
-
-```bash
-# 1. Generate kind-config from template
-make kind-config
-
-# 2. Create cluster
-kind create cluster --config=infra/kind-config.yaml --name=ncx-demo-cluster
-
-# 3. Fix inotify (prevents "too many open files" crashes)
-for node in ncx-demo-cluster-worker ncx-demo-cluster-worker2 ncx-demo-cluster-worker3; do
-  docker exec $node sysctl -w fs.inotify.max_user_watches=524288
-  docker exec $node sysctl -w fs.inotify.max_user_instances=8192
-done
-
-# 4. Apply NVIDIA RuntimeClass
-kubectl apply -f manifests/nvidia-runtimeclass.yaml
-
-# 5. Advertise GPU resources (patches fake nvidia.com/gpu capacity onto Kind nodes
-#    so the Dynamo operator's GPU resource requirements are satisfied — no real GPU
-#    is consumed by the mocker workload)
-bash scripts/advertise-gpu-resources.sh
-```
+If a specific step fails, run it individually. See `make help` for all available targets.
 
 ---
 
 ## Validation
-
-### Automated
 
 ```bash
 make validate-phase1
@@ -112,14 +91,6 @@ kubectl describe nodes | grep -E "(Name:|nvidia.com/gpu)"
 # Each worker should show nvidia.com/gpu: 1 in capacity and allocatable
 ```
 
-**GPU device mounts:**
-```bash
-for node in ncx-demo-cluster-worker ncx-demo-cluster-worker2 ncx-demo-cluster-worker3; do
-  docker exec $node ls /dev/nvidia0 /dev/nvidia-uvm /dev/nvidiactl
-done
-# No "No such file or directory" errors
-```
-
 **NVIDIA RuntimeClass:**
 ```bash
 kubectl get runtimeclass nvidia
@@ -131,37 +102,38 @@ kubectl get runtimeclass nvidia
 ## Troubleshooting
 
 ### Nodes Not Ready
+
+Kind nodes are Docker containers; the CNI plugin initializes asynchronously after cluster creation. If nodes remain NotReady for more than 2 minutes, check for resource constraints or initialization errors:
+
 ```bash
 kubectl describe node <node-name>
-# Check Conditions section for errors
-# Usually: CNI plugin starting up (wait 1-2 min) or insufficient memory
+# Check the Conditions section — common causes: CNI still initializing, insufficient memory
 ```
 
 ### GPU Resources Not Showing
+
+The `advertise-gpu-resources` step patches `nvidia.com/gpu` capacity onto nodes via the Kubernetes API. This patch is not persisted — a Docker or node restart drops it. Re-run to restore:
+
 ```bash
-bash scripts/advertise-gpu-resources.sh
-# Re-run the resource advertising script
+make advertise-gpu-resources
 ```
 
 ### "Too Many Open Files" Errors
+
+The inotify limits are set per Kind node via `sysctl` and are not persisted across node restarts. Re-run to restore:
+
 ```bash
-# Re-run inotify fix
 make fix-inotify-limits
 ```
+
+For any issue not covered here, `make clean` followed by `make phase1` is the fastest recovery path in a demo environment.
 
 ---
 
 ## Next Steps
 
-Once Phase 1 validation passes, proceed to Phase 2:
-
-```bash
-make phase2
-```
-
-This installs KAI Scheduler, Grove, and Dynamo platform.
+Proceed to Phase 2: [`docs/phase2-runbook.md`](phase2-runbook.md)
 
 ---
 
-**Runbook Version:** 1.0  
-**Last Updated:** 2026-04-09
+**Last Updated:** 2026-04-12

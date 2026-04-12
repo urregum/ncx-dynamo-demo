@@ -166,6 +166,12 @@ make compare-results     # Print side-by-side latency table
 ## Key Technical Decisions
 
 ### 1. HF Cache Access (Rust + Python Split)
+**Why the model is needed at all:** The mocker does not run inference, but two components still require the HuggingFace model cache:
+- **Frontend** — loads the tokenizer to support KV-aware request routing (`--router-mode kv`)
+- **Prefill worker** — reads model config (`num_layers`, `num_kv_heads`, `head_dim`, `dtype`) to compute `kv_bytes_per_token`, which drives the KV transfer delay formula
+
+The model weights (~1.2 GB) are present in the cache but unused. What matters is the tokenizer vocabulary and the model config JSON.
+
 **Problem:** Dynamo mocker (Rust) writes to `$HF_HOME/hub` (needs writable dir). Python HF Hub reads from `$HF_HUB_CACHE` (read-only mount).
 
 **Solution:**
@@ -206,11 +212,11 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 
 ## Validation Checkpoints
 
-| Phase | Validation | Script |
-|-------|-----------|--------|
-| 1 | Cluster health, rack labels, GPU resources | `scripts/validate-phase1.sh` |
-| 2 | KAI + Grove + Dynamo running, workload ganged | `scripts/validate-phase2.sh` |
-| 3 | DGD healthy, inference works, disaggregation confirmed | `scripts/validate-phase3.sh` |
+| Phase | Validation | Command |
+|-------|-----------|---------|
+| 1 | Cluster health, rack labels, GPU resources | `make validate-phase1` |
+| 2 | KAI + Grove + Dynamo running, workload ganged | `make validate-phase2` |
+| 3 | DGD healthy, inference works, disaggregation confirmed | `make validate-phase3` |
 
 ---
 

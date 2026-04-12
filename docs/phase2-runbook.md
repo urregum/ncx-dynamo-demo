@@ -14,6 +14,8 @@ Phase 2 installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo
 
 ## Prerequisites
 
+`make phase2` automatically runs `make validate-phase1` before installing anything — running it manually first gives explicit visibility into Phase 1 state before the scheduling stack is installed.
+
 From Phase 1:
 - ✅ Kind cluster with 4 nodes (1 control plane + 3 workers in 2 racks)
 - ✅ GPU resources advertised
@@ -25,28 +27,30 @@ New for Phase 2:
 
 ### NGC API Key Setup
 
-The Dynamo operator image (`nvcr.io/nvidia/ai-dynamo/kubernetes-operator`) is hosted on NVIDIA's NGC registry. Two forms of authentication are required:
+The Dynamo operator image (`nvcr.io/nvidia/ai-dynamo/kubernetes-operator`) is hosted on NVIDIA's NGC registry. Get a key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys) (free NVIDIA developer account required).
 
-**1. Docker login on host** — needed for `make phase2` to pull the operator image:
+Two forms of authentication are needed before running `make phase2`:
 
-```bash
-docker login nvcr.io -u '$oauthtoken' --password <your-ngc-api-key>
-```
-
-**2. Kubernetes imagePullSecret** — needed for pods to pull NGC images at runtime.
-`make phase2` creates this automatically by calling `scripts/setup-ngc-secret.sh`.
-The script reads your key from a file:
+**1. Docker login on host** — for `make phase2` to pull the operator image:
 
 ```bash
-echo '<your-ngc-api-key>' > ~/Downloads/ngcapikey
+echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ```
 
-Get an NGC API key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys) (free NVIDIA developer account required).
+**2. Kubernetes imagePullSecret** — for pods to pull NGC images at runtime.
+`make phase2` creates this automatically via `scripts/setup-ngc-secret.sh`.
 
-> The `NGC_KEY_FILE` environment variable overrides the default path if you prefer a different location:
-> ```bash
-> export NGC_KEY_FILE=~/.config/ngcapikey
-> ```
+The script resolves your key in this order:
+1. `NGC_API_KEY` environment variable (recommended)
+2. File at `NGC_KEY_FILE` path (default: `~/.ngc/apikey`)
+
+```bash
+# Option A: environment variable (no file on disk)
+export NGC_API_KEY='<your-key>'
+
+# Option B: file (use restrictive permissions)
+mkdir -p ~/.ngc && echo '<your-key>' > ~/.ngc/apikey && chmod 600 ~/.ngc/apikey
+```
 
 ---
 
@@ -58,14 +62,14 @@ Get an NGC API key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia
 make phase2
 ```
 
-**Time:** ~3-5 minutes
+**Time:** ~1.5-2 minutes
 
 This runs all steps:
 1. Pre-pull Dynamo operator image into kind nodes (requires `docker login nvcr.io`)
 2. Install KAI Scheduler (Helm)
 3. Install Grove (Helm)
 4. Install Dynamo platform (Helm from cloned source)
-5. Create NGC imagePullSecret in `dynamo-system` and `dynamo-demo` namespaces (reads `~/Downloads/ngcapikey`)
+5. Create NGC imagePullSecret in `dynamo-system` and `dynamo-demo` namespaces (reads `NGC_API_KEY` or `~/.ngc/apikey`)
 6. Deploy placeholder PodCliqueSet workload
 
 ---
@@ -147,24 +151,17 @@ kubectl get pods -n dynamo-demo -o wide
 
 ### Pods Stuck in Pending
 
-**Check admission webhook:**
+Gang scheduling requires all pods in a group to be schedulable simultaneously. If the admission webhook rejects a pod or the scheduler can't satisfy all constraints, the entire gang waits. Start with the admission webhook, then the scheduler, then Grove:
+
 ```bash
 kubectl logs -n kai-scheduler -l app.kubernetes.io/name=admission -f
-```
-
-**Check scheduler logs:**
-```bash
 kubectl logs -n kai-scheduler -l app.kubernetes.io/name=kai-scheduler -f
-```
-
-**Check Grove logs:**
-```bash
 kubectl logs -n grove-system -l app.kubernetes.io/name=grove-operator -f
 ```
 
 ### Helm Errors
 
-If Helm install fails, manually pull Helm dependencies:
+`install-dynamo-platform` downloads the Dynamo chart and its sub-chart dependencies (NATS, bitnami) at install time. Network issues or rate limiting can cause this step to fail. If it does, the dependencies can be pulled manually before retrying:
 
 ```bash
 git clone --depth 1 --branch v1.0.1 \
@@ -174,20 +171,14 @@ helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm dependency update /tmp/dynamo-chart-src/deploy/helm/charts/platform
 ```
 
+For any issue not covered here, `make clean` followed by `make phase1 phase2` is the fastest recovery path.
+
 ---
 
 ## Next Steps
 
-Once Phase 2 validation passes, proceed to Phase 3:
-
-```bash
-make download-model           # Pre-stage Qwen3-0.6B model (one-time)
-make phase3                   # Deploy real Dynamo mocker workers
-make phase3-same-rack         # Deploy same-rack scenario
-make run-benchmark            # Run aiperf latency test
-```
+Proceed to Phase 3: [`docs/phase3-runbook.md`](phase3-runbook.md)
 
 ---
 
-**Runbook Version:** 1.0  
-**Last Updated:** 2026-04-09
+**Last Updated:** 2026-04-12

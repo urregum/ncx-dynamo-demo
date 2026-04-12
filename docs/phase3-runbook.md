@@ -2,26 +2,27 @@
 
 ## Overview
 
-Phase 3 deploys real Dynamo mocker workers and runs AIPerf latency benchmarks to compare same-rack vs cross-rack placement. The mocker simulates disaggregated inference by parameterising KV-cache transfer bandwidth.
+Phase 3 deploys Dynamo mocker workers and runs AIPerf latency benchmarks to compare same-rack vs cross-rack placement. The mocker simulates disaggregated inference by parameterizing KV-cache transfer bandwidth — no GPU required.
 
 **What Happens:**
-1. Download Qwen3-0.6B model to local cache
+1. Download Qwen3-0.6B model to local cache (tokenizer + config needed by mocker)
 2. Deploy DynamoGraphDeployment (DGD) — creates Frontend + Prefill/Decode workers
-3. Run AIPerf benchmark tool to measure latency (p50, p99, throughput)
+3. Run AIPerf benchmark to measure latency (p50, p99, throughput)
 4. Compare results side-by-side
-5. Visualize placement effect (3× latency difference at ISL=4096)
 
 ---
 
 ## Prerequisites
+
+`make phase3` automatically runs `make validate-phase2` before deploying workers — running it manually first gives explicit visibility into Phase 2 state.
 
 From Phase 2:
 - ✅ KAI + Grove + Dynamo platform running
 - ✅ Placeholder workload validated
 
 New for Phase 3:
-- 15+ GB free disk space (for Qwen3-0.6B model)
-- huggingface_hub, aiperf in Python venv: `make install-aiperf`
+- ~2 GB free disk space (for Qwen3-0.6B model cache)
+- Python venv with aiperf: `make install-aiperf`
 
 ---
 
@@ -30,25 +31,24 @@ New for Phase 3:
 ### Quick Start
 
 ```bash
-# One-time model download
+# One-time setup
+make install-aiperf
 make download-model
 
-# Phase 3 complete setup
+# Deploy and validate
 make phase3
+make validate-phase3
 
-# Deploy same-rack scenario
-make phase3-same-rack
+# Benchmark same-rack scenario (already deployed by make phase3)
+make show-placement          # Confirm prefill + decode both on rack-01
+make run-benchmark           # Saves results/same-rack.json
 
-# Run benchmark
-make run-benchmark
-
-# Deploy cross-rack scenario
+# Switch to cross-rack and benchmark
 make phase3-cross-rack
+make show-placement          # Confirm decode moved to rack-02
+make run-benchmark           # Saves results/cross-rack.json
 
-# Run benchmark again
-make run-benchmark
-
-# Compare results side-by-side
+# Compare
 make compare-results
 ```
 
@@ -60,44 +60,28 @@ make install-aiperf
 # Creates .venv/, installs aiperf==0.7.0 + huggingface_hub + hf_transfer
 ```
 
-**Step 2: Download model** (one-time, ~5 GB)
+**Step 2: Download model**
 ```bash
 make download-model
-# Uses huggingface_hub to cache Qwen/Qwen3-0.6B locally
+# Uses huggingface_hub to cache Qwen/Qwen3-0.6B locally (~1.5 GB)
 # Saved to: models/hf-cache/models--Qwen--Qwen3-0.6B/snapshots/<hash>/
 ```
 
-**Step 3: Clean up Phase 2 placeholder**
+Must be done if the model cache is absent. Safe to re-run to update to the latest model revision.
+
+The mocker does not run inference, but the model cache serves two purposes:
+- **Frontend** — loads the tokenizer to support KV-aware routing (`--router-mode kv`)
+- **Workers** — read model config (`num_layers`, `num_kv_heads`, `head_dim`) to compute `kv_bytes_per_token`, which drives the KV transfer delay formula
+
+The weights themselves (~1.2 GB of the total) are present in the cache but unused by the mocker.
+
+**Step 3: Deploy mocker workers**
 ```bash
-make cleanup-placeholder
-# Deletes placeholder workload (dynamo-placeholder-workload.yaml)
+make phase3
+# Validates Phase 2, pulls mocker image, removes placeholder, deploys same-rack DGD
 ```
 
-**Step 4: Deploy mocker image**
-```bash
-make download-mocker-image
-# Pre-pulls ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1 into kind nodes
-```
-
-**Step 5: Deploy DGD (choose scenario)**
-
-Both scenarios use gang scheduling — KAI ensures frontend, prefill, and decode all start atomically. The difference is placement: in a real deployment with available same-rack capacity, KAI would always produce the same-rack result. We force both placements to demonstrate the latency cost that topology-aware scheduling prevents.
-
-Same-rack (KAI-optimal placement):
-```bash
-make phase3-same-rack
-# Applies dynamo-mock-workers-same-rack.yaml
-# Prefill + Decode both on rack-01, 400 GB/s KV bandwidth (NVLink analog)
-```
-
-Cross-rack (forced suboptimal placement):
-```bash
-make phase3-cross-rack
-# Applies dynamo-mock-workers-cross-rack.yaml
-# Prefill on rack-01, Decode on rack-02, 12.5 GB/s KV bandwidth (100 GbE analog)
-```
-
-**Step 6: Validate DGD**
+**Step 4: Validate**
 ```bash
 make validate-phase3
 # 6-check validation:
@@ -109,20 +93,56 @@ make validate-phase3
 #  6. Response includes disaggregation worker IDs
 ```
 
-**Step 7: Run benchmark**
+**Step 5: Benchmark same-rack scenario**
 ```bash
-make run-benchmark
-# Profiles model with aiperf at ISL=4096, OSL=32, concurrency=4, 20 requests
-# Saves JSON to: results/same-rack.json or results/cross-rack.json
-# Based on DGD's demo/scenario label
+make show-placement    # Confirm prefill + decode on rack-01
+make run-benchmark     # ISL=4096, OSL=32, concurrency=4, 20 requests
+                       # Saves results/same-rack.json
 ```
 
-**Step 8: Compare results**
+**Step 6: Switch to cross-rack and benchmark**
+```bash
+make phase3-cross-rack
+make show-placement    # Confirm decode moved to rack-02
+make run-benchmark     # Saves results/cross-rack.json
+```
+
+**Step 7: Compare results**
 ```bash
 make compare-results
-# Reads results/*.json
-# Prints side-by-side latency + throughput table
+# Prints side-by-side latency + throughput table with computed ratio row
 ```
+
+---
+
+## Benchmark Characteristics
+
+### Default Settings
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Model | Qwen/Qwen3-0.6B | 370M parameters, lightweight |
+| ISL (Input Sequence Length) | 4096 tokens | Large prompts → large KV cache → large bandwidth difference |
+| OSL (Output Sequence Length) | 32 tokens | Short responses; keeps test fast |
+| Concurrency | 4 | 4 overlapping requests |
+| Requests | 20 | Per scenario |
+| Artifact dir | `results/` | JSON per scenario |
+
+ISL is the dominant parameter for this benchmark: KV cache size grows linearly with input length, so a higher ISL amplifies the bandwidth difference between scenarios. At ISL=4096, the same-rack/cross-rack delta is clearly visible (~3×). At ISL=512 the delta narrows; at ISL=8192 it widens. This makes ISL the most informative axis to vary if exploring beyond the default benchmark. See `make help` for configurable Makefile variables (`BENCHMARK_ISL`, `BENCHMARK_OSL`, `BENCHMARK_CONC`).
+
+### Expected Results (Mocker Baselines)
+
+**Same-Rack (400 GB/s):**
+- p50 latency: ~9.4 ms
+- p99 latency: ~12.6 ms
+- Throughput: ~374 req/s
+
+**Cross-Rack (12.5 GB/s):**
+- p50 latency: ~28.3 ms (3× same-rack)
+- p99 latency: ~29.9 ms
+- Throughput: ~136 req/s (2.7× lower)
+
+Reference environment: Ubuntu 24.04, RTX 3070 Ti host. Absolute numbers will differ, but the ratios are stable — they reflect the bandwidth formula directly.
 
 ---
 
@@ -143,34 +163,6 @@ At ISL=4096 (~235 MB KV cache):
 - 12.5 GB/s → ~18.8 ms modeled transfer
 
 The ~8.8 ms p50 baseline in the same-rack result is container networking overhead (port-forward + Kind CNI), not mocker behavior. The delta between scenarios reflects the transfer formula directly.
-
----
-
-## Benchmark Characteristics
-
-### Default Settings
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| Model | Qwen/Qwen3-0.6B | 370M parameters, lightweight |
-| ISL (Input Seq Len) | 4096 | Large prompts → large KV cache |
-| OSL (Output Seq Len) | 32 | Short responses |
-| Concurrency | 4 | 4 overlapping requests |
-| Requests | 20 | Per scenario |
-| Artifact dir | `results/` | JSON per scenario |
-
-### Expected Results (Mocker Baselines)
-
-**Same-Rack (400 GB/s):**
-- p50 latency: ~9.4 ms
-- p99 latency: ~12.6 ms
-- Throughput: ~374 req/s
-
-**Cross-Rack (12.5 GB/s):**
-- p50 latency: ~28.3 ms (3× same-rack)
-- p99 latency: ~29.9 ms
-- Throughput: ~136 req/s (2.7× lower)
-
-**Key Insight:** Placement dominates latency. KV transfer time scales linearly with cache size (ISL) and inversely with bandwidth. The same-rack p50 of ~9.4 ms includes ~8.8 ms of container networking baseline — the modeled KV transfer at 400 GB/s is only ~0.6 ms. The ~18.8 ms delta between scenarios matches the formula directly: same KV cache, 32× lower bandwidth.
 
 ---
 
@@ -213,102 +205,52 @@ Same structure, different placement:
 
 ### DGD Stuck in Creating
 
-**Check DGD status:**
+The Dynamo operator creates pods from the DGD spec; if image pulls fail or resources are unavailable the DGD stays in Creating. Check the DGD status and the pods it created:
+
 ```bash
 kubectl get dynamographdeployment dynamo-bench -n dynamo-demo
 kubectl describe dynamographdeployment dynamo-bench -n dynamo-demo
-```
-
-**Check pods:**
-```bash
 kubectl get pods -n dynamo-demo -l app.kubernetes.io/part-of=dynamo-bench
 kubectl describe pod <pod-name> -n dynamo-demo
 ```
 
 ### Mocker Pod CrashLoopBackOff
 
-**Check logs:**
 ```bash
 kubectl logs <pod-name> -n dynamo-demo -f
 ```
 
-**Common issues:**
+**Common causes:**
 - "Failed to create cache directory" → `HF_HOME` not writable (should be `/tmp`)
-- "Model snapshots not found" → Model path mismatch or HF cache not mounted
+- "Model snapshots not found" → Model path mismatch or HF cache not mounted; run `make download-model` to verify the cache
 - "Tokenizer load failed" → Frontend doesn't have HF cache mounted
 
 ### Inference Returns 404
 
-**Check Frontend logs:**
+The frontend registers the model when workers come online via NATS. A 404 usually means the frontend started but workers haven't registered yet — wait a few seconds and retry. If it persists:
+
 ```bash
 kubectl logs -n dynamo-demo -l nvidia.com/dynamo-component-type=frontend
-```
-
-**Check model resolution:**
-```bash
-# Inside Frontend pod:
 kubectl exec -it <frontend-pod> -n dynamo-demo -- ls /root/.cache/huggingface/models--Qwen*
 ```
 
 ### AIPerf Hangs or Fails
 
-**Verify connectivity:**
+The benchmark port-forwards to localhost:8000. If the port-forward itself fails (address in use, pod not ready), verify connectivity first:
+
 ```bash
-# Test port-forward
 kubectl port-forward svc/dynamo-bench-frontend -n dynamo-demo 8000:8000 &
-sleep 3
-curl http://localhost:8000/health
+sleep 2 && curl http://localhost:8000/health
 ```
 
-**Check firewall/routing:**
+For in-cluster connectivity issues, a debug pod bypasses the port-forward entirely:
+
 ```bash
-# From host, directly test the service
 kubectl run -it --rm debug --image=curlimages/curl -n dynamo-demo -- \
   curl http://dynamo-bench-frontend:8000/health
 ```
 
----
-
-## Next Steps
-
-### Visualization & Reporting
-
-Generate a markdown report with results:
-
-```bash
-cat > results/summary.md << 'EOF'
-# Latency Comparison Results
-
-| Scenario | p50 (ms) | p99 (ms) | Throughput (req/s) |
-|----------|----------|----------|-------------------|
-| Same-Rack | 9.4 | 12.6 | 374 |
-| Cross-Rack | 28.3 | 29.9 | 136 |
-| **Delta** | **3.0×** | **2.4×** | **0.36×** |
-
-Placement matters: cross-rack KV transfer (12.5 GB/s) vs same-rack (400 GB/s).
-EOF
-```
-
-### Real GPU Inference (Future Extension)
-
-To run actual inference instead of mocker:
-1. Replace `dynamo-mocker` image with vLLM/SGLang runtime
-2. Remove `--speedup-ratio 0` (let compute latency contribute)
-3. Extend ISL to 1024+ for clearer signal
-4. Validate throughput via token generation, not just request count
-
-### Multi-Scenario Benchmarks
-
-```bash
-# Run multiple ISL values
-for ISL in 512 1024 2048 4096 8192; do
-  make phase3-same-rack
-  sed -i "s/BENCHMARK_ISL=4096/BENCHMARK_ISL=$ISL/" Makefile
-  make run-benchmark
-done
-
-# Analyze scaling: latency should grow ~linearly with ISL
-```
+For any issue not covered here, `make clean` followed by running all three phases is the fastest recovery path.
 
 ---
 
@@ -318,10 +260,11 @@ done
 |------|---------|
 | `manifests/dynamo-mock-workers-same-rack.yaml` | DGD manifest: same-rack scenario |
 | `manifests/dynamo-mock-workers-cross-rack.yaml` | DGD manifest: cross-rack scenario |
-| `results/same-rack.json` | AIPerf profile output |
-| `results/cross-rack.json` | AIPerf profile output |
+| `results/same-rack.json` | AIPerf output (written by `make run-benchmark`) |
+| `results/cross-rack.json` | AIPerf output (written by `make run-benchmark`) |
+| `results/examples/` | Reference outputs from Ubuntu reference environment |
 | `models/hf-cache/` | Qwen3-0.6B model cache |
-| `scripts/validate-phase3.sh` | 6-check validation script |
+| `scripts/validate-phase3.sh` | 6-check validation script — run via `make validate-phase3` |
 | `.venv/` | Python virtual environment (aiperf, huggingface_hub) |
 
 ---
@@ -347,10 +290,14 @@ aiperf profile MODEL_NAME \
   --profile-export-prefix SCENARIO_NAME
 ```
 
-Output: `DIR/SCENARIO_NAME.json` (not nested under model slug)
+Output: `DIR/SCENARIO_NAME.json` (not nested under model slug). See the [AIPerf documentation](https://github.com/ai-dynamo/dynamo/tree/main/benchmarks/aiperf) for the full parameter reference.
 
 ---
 
-**Runbook Version:** 1.0  
-**Last Updated:** 2026-04-09  
-**Audience:** Demo operators, benchmarking researchers
+## Next Steps
+
+See [`docs/architecture.md`](architecture.md#future-extensions) for planned extensions including real GPU inference (Phase 4) and scheduling scenario demonstrations (Phase 5).
+
+---
+
+**Last Updated:** 2026-04-12
