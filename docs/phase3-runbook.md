@@ -5,10 +5,14 @@
 Phase 3 deploys Dynamo mocker workers and runs AIPerf latency benchmarks to compare same-rack vs cross-rack placement. The mocker simulates disaggregated inference by parameterizing KV-cache transfer bandwidth — no GPU required.
 
 **What Happens:**
-1. Download Qwen3-0.6B model to local cache (tokenizer + config needed by mocker)
-2. Deploy DynamoGraphDeployment (DGD) — creates Frontend + Prefill/Decode workers
-3. Run AIPerf benchmark to measure latency (p50, p99, throughput)
-4. Compare results side-by-side
+1. Remove Phase 2 placeholder workload (frees node resources for the DGD)
+2. Download Qwen3-0.6B model to local cache (tokenizer + config needed by mocker)
+3. Deploy DynamoGraphDeployment (DGD) — creates Frontend + Prefill/Decode workers
+4. Run AIPerf benchmark to measure latency (p50, p99, throughput)
+5. Compare results side-by-side
+
+> [!NOTE]
+> `make phase3` is not idempotent — the placeholder removal is a one-way transition. If phase3 fails after that point, `make clean` followed by the full sequence is required to restore a valid phase2 state. See [Troubleshooting](#troubleshooting) for details.
 
 ---
 
@@ -18,7 +22,7 @@ Phase 3 deploys Dynamo mocker workers and runs AIPerf latency benchmarks to comp
 
 From Phase 2:
 - ✅ KAI + Grove + Dynamo platform running
-- ✅ Placeholder workload validated
+- ✅ Placeholder workload validated (confirms gang scheduling; removed by `make phase3`)
 
 New for Phase 3:
 - ~2 GB free disk space (for Qwen3-0.6B model cache)
@@ -250,6 +254,12 @@ kubectl run -it --rm debug --image=curlimages/curl -n dynamo-demo -- \
   curl http://dynamo-bench-frontend:8000/health
 ```
 
+### Re-running make phase3 Fails at validate-phase2
+
+`make phase3` removes the placeholder workload as its first step. If phase3 then fails for any reason, the placeholder is gone and `make validate-phase2` will fail at check 6 on any subsequent run. This is expected — the placeholder's existence is the phase2 completion marker, and once removed it cannot be trivially restored without re-running the full sequence.
+
+**Recovery:** `make clean` followed by `make phase1 phase2 phase3`.
+
 For any issue not covered here, `make clean` followed by running all three phases is the fastest recovery path.
 
 ---
@@ -300,4 +310,4 @@ See [`docs/architecture.md`](architecture.md#future-extensions) for planned exte
 
 ---
 
-**Last Updated:** 2026-04-12
+**Last Updated:** 2026-04-13

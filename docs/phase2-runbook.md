@@ -2,13 +2,13 @@
 
 ## Overview
 
-Phase 2 installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo platform. A placeholder workload validates gang scheduling before Phase 3 brings in real Dynamo workers.
+Phase 2 installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo platform. A placeholder workload is deployed as a gang scheduling smoke test — confirming the mechanism works with a trivial workload before Dynamo workers are introduced. It is removed at the start of Phase 3 to free node resources for the DGD.
 
 **What Gets Installed:**
 - **KAI Scheduler v0.14.0** — Gang scheduling, queue management
 - **Grove v0.1.0-alpha.7** — Converts PodCliqueSet → ganged deployments
 - **Dynamo Platform v1.0.1** — Disaggregated inference operator + NATS
-- **Placeholder workload** — Nginx pods demonstrating gang scheduling
+- **Placeholder workload** — Nginx PodCliqueSet that smoke-tests gang scheduling; removed at the start of Phase 3
 
 ---
 
@@ -70,7 +70,7 @@ This runs all steps:
 3. Install Grove (Helm)
 4. Install Dynamo platform (Helm from cloned source)
 5. Create NGC imagePullSecret in `dynamo-system` and `dynamo-demo` namespaces (reads `NGC_API_KEY` or `~/.ngc/apikey`)
-6. Deploy placeholder PodCliqueSet workload
+6. Deploy placeholder PodCliqueSet workload (gang scheduling smoke test; removed at the start of Phase 3)
 
 ---
 

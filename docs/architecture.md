@@ -56,7 +56,7 @@ This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment
 1. User applies `DynamoGraphDeployment` (DGD) CRD
 2. Dynamo operator creates 3 pod templates: Frontend, Prefill Worker, Decode Worker
 3. Each template becomes a `PodClique` (via Grove); related cliques form `PodCliqueSet`
-4. KAI Scheduler enforces gang scheduling: all pods in cliques start together or none start — this applies to both the Phase 2 placeholder and the Phase 3 DGD workload
+4. KAI Scheduler enforces gang scheduling: all pods in cliques start together or none start — this applies to both the Phase 2 placeholder and the Phase 3 DGD workload. The placeholder is a smoke test of this mechanism using simple nginx pods; it is removed at the start of Phase 3 to free node resources for the DGD on the constrained local cluster.
 5. NATS bus coordinates inter-pod communication (worker discovery, request routing)
 
 ### Component Topology Rationale
