@@ -1,19 +1,23 @@
-.PHONY: help cluster-up cluster-down cluster-status phase1 phase2 phase3 clean validate-prereqs \
-        download-mocker-image build-mocker-image validate-phase2 \
-        cleanup-placeholder validate-phase3 phase3-same-rack phase3-cross-rack \
+.PHONY: help cluster-up cluster-down cluster-status cluster-setup stack-install mocker-deploy clean validate-prereqs \
+        download-mocker-image build-mocker-image validate-stack \
+        cleanup-placeholder validate-mocker benchmark-same-rack benchmark-cross-rack \
         show-placement install-aiperf run-benchmark compare-results kind-config \
-        fix-inotify-limits apply-runtimeclass advertise-gpu-resources
+        fix-inotify-limits apply-runtimeclass advertise-gpu-resources validate-cluster
 
 # ============================================================================
 # NCX Dynamo Demo - Makefile
 # ============================================================================
-# This Makefile orchestrates a 3-phase demo environment for NVIDIA Dynamo
+# This Makefile orchestrates the demo environment for NVIDIA Dynamo,
 # focused on scheduling, coordination, and observability with GPU mockers.
 #
-# Phases:
-#   1. Control plane + workers (rack topology)
-#   2. Schedulers + Dynamo + GPU mockers
-#   3. AIPerf benchmarking
+# Core setup (run in order):
+#   cluster-setup   — Kind cluster with rack topology + GPU scaffolding
+#   stack-install   — KAI Scheduler, Grove, Dynamo operator via Helm
+#
+# Demo tracks (run after core setup, independently):
+#   mocker-deploy       — Pull mocker image + deploy same-rack DGD
+#   benchmark-same-rack — Configure same-rack placement (400 GB/s KV)
+#   benchmark-cross-rack— Configure cross-rack placement (12.5 GB/s KV)
 # ============================================================================
 
 CLUSTER_NAME := ncx-demo-cluster
@@ -45,10 +49,10 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z0-9_-]+:.*## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Quick start:"
-	@echo "  make validate-prereqs  # Check system requirements"
-	@echo "  make phase1            # Set up cluster"
-	@echo "  make phase2            # Install schedulers + Dynamo"
-	@echo "  make phase3            # Set up benchmarking"
+	@echo "  make validate-prereqs       # Check system requirements"
+	@echo "  make cluster-setup          # Create cluster with rack topology"
+	@echo "  make stack-install          # Install KAI, Grove, Dynamo operator"
+	@echo "  make mocker-deploy          # Deploy mocker workers (benchmark track)"
 
 # ============================================================================
 # Prerequisites Validation
@@ -73,14 +77,14 @@ validate-prereqs: ## Validate system has required tools
 # Phase 1: Cluster Infrastructure
 # ============================================================================
 
-phase1: validate-prereqs cluster-up fix-inotify-limits apply-runtimeclass advertise-gpu-resources ## Phase 1: Create cluster with rack topology + GPU setup
+cluster-setup: validate-prereqs cluster-up fix-inotify-limits apply-runtimeclass advertise-gpu-resources ## Create Kind cluster with rack topology + GPU scaffolding
 	@echo ""
-	@echo "==> Phase 1 Complete!"
+	@echo "==> Cluster setup complete!"
 	@echo "Cluster: $(CLUSTER_NAME)"
 	@kubectl get nodes -L rack
 	@echo ""
-	@echo "Run 'make validate-phase1' to verify all checks pass."
-	@echo "Next step: make phase2"
+	@echo "Run 'make validate-cluster' to verify all checks pass."
+	@echo "Next step: make stack-install"
 
 kind-config: ## Generate infra/kind-config.yaml (auto-selects GPU or no-GPU cluster template)
 	@if [ -e /dev/nvidia0 ]; then \
@@ -153,22 +157,22 @@ check-ngc-login: ## Verify nvcr.io docker login credentials are present
 	fi
 	@echo "✓ nvcr.io credentials present"
 
-phase2: validate-phase1 check-ngc-login prepull-operator install-schedulers install-dynamo-platform deploy-workload ## Phase 2: Install scheduling stack + Dynamo operator + placeholder workload
+stack-install: validate-cluster check-ngc-login prepull-operator install-schedulers install-dynamo-platform deploy-workload ## Install KAI Scheduler, Grove, and Dynamo operator via Helm
 	@echo ""
-	@echo "==> Phase 2 Complete!"
+	@echo "==> Stack installation complete!"
 	@echo ""
 	@echo "Installed Helm releases:"
 	@helm list -A
 	@echo ""
-	@echo "Run 'make validate-phase2' to verify all checks pass."
-	@echo "Next step: make phase3"
+	@echo "Run 'make validate-stack' to verify all checks pass."
+	@echo "Next step: make mocker-deploy"
 	@echo ""
-	@echo "Optional one-time pre-phase3 setup:"
-	@echo "  make install-aiperf       # install aiperf benchmark tool into .venv"
+	@echo "Optional one-time pre-mocker-deploy setup:"
+	@echo "  make install-aiperf         # install aiperf benchmark tool into .venv"
 	@echo "  make download-mocker-image  # pre-pull GPU mocker image into kind nodes (~500 MB)"
 
-validate-phase1: ## Validate Phase 1 cluster is ready
-	@./scripts/validate-phase1.sh
+validate-cluster: ## Validate cluster is ready (nodes, racks, GPU resources)
+	@./scripts/validate-cluster.sh
 
 prepull-operator: ## Pull Dynamo operator image into kind nodes (67 MB, fast)
 	@echo "==> Pulling Dynamo operator image on host..."
@@ -253,26 +257,26 @@ deploy-workload: ## Deploy placeholder DynamoInferenceService workload (nginx, v
 MOCKER_IMAGE  := ghcr.io/urregum/ncx-dynamo-demo/dynamo-mocker:1.0.1
 AIPERF_IMAGE  := nvcr.io/nvidia/ai-dynamo/aiperf:0.7.0
 
-phase3: validate-phase2 download-mocker-image cleanup-placeholder phase3-same-rack ## Phase 3: Pull mocker image + deploy same-rack DGD
+mocker-deploy: validate-stack download-mocker-image cleanup-placeholder benchmark-same-rack ## Pull mocker image, remove placeholder, deploy same-rack DGD
 	@echo ""
-	@echo "==> Phase 3 complete! Dynamo disaggregated inference running (same-rack)."
+	@echo "==> Mocker deployed — Dynamo disaggregated inference running (same-rack)."
 	@echo ""
 	@kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/name=dynamo-bench
 	@echo ""
 	@echo "Demo flow:"
-	@echo "  make show-placement           # Show prefill/decode node placement"
-	@echo "  make run-benchmark            # Benchmark same-rack latency (save to results/same-rack.json)"
-	@echo "  make phase3-cross-rack        # Redeploy workload cross-rack"
-	@echo "  make run-benchmark            # Benchmark cross-rack latency"
-	@echo "  make compare-results          # Side-by-side latency table"
+	@echo "  make show-placement             # Show prefill/decode node placement"
+	@echo "  make run-benchmark              # Benchmark same-rack latency (save to results/same-rack.json)"
+	@echo "  make benchmark-cross-rack       # Redeploy workload cross-rack"
+	@echo "  make run-benchmark              # Benchmark cross-rack latency"
+	@echo "  make compare-results            # Side-by-side latency table"
 
-validate-phase2: ## Validate Phase 2 scheduling stack is ready
-	@./scripts/validate-phase2.sh
+validate-stack: ## Validate scheduling stack is ready (KAI, Grove, Dynamo, placeholder)
+	@./scripts/validate-stack.sh
 
-validate-phase3: ## Validate Phase 3 mocker stack is healthy (DGD, pods, inference, disaggregation)
-	@./scripts/validate-phase3.sh
+validate-mocker: ## Validate mocker stack is healthy (DGD, pods, inference, disaggregation)
+	@./scripts/validate-mocker.sh
 
-cleanup-placeholder: ## Remove Phase 2 nginx placeholder workload
+cleanup-placeholder: ## Remove stack validation placeholder workload (nginx PodCliqueSet)
 	@echo "==> Removing Phase 2 placeholder workload..."
 	@kubectl delete podcliqueset dynamo-demo -n $(NS_WORKLOAD) --ignore-not-found
 	@echo "✓ Placeholder removed"
@@ -305,7 +309,7 @@ build-mocker-image: ## Build mocker image locally from Dockerfile (fallback / de
 # Demo Scenarios
 # ============================================================================
 
-demo-latency-comparison: phase3-same-rack run-benchmark phase3-cross-rack run-benchmark compare-results ## Demo: Full same-rack vs cross-rack latency comparison
+demo-latency-comparison: benchmark-same-rack run-benchmark benchmark-cross-rack run-benchmark compare-results ## Demo: Full same-rack vs cross-rack latency comparison
 
 demo-observability: ## Demo: Show cluster observability
 	@echo "==> Demo: Cluster Observability"
@@ -320,7 +324,7 @@ demo-observability: ## Demo: Show cluster observability
 FRONTEND_SVC := dynamo-bench-frontend
 RESULTS_DIR  := $(CURDIR)/results
 
-phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 GB/s KV)
+benchmark-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 GB/s KV)
 	@echo "==> Deploying same-rack scenario..."
 	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-same-rack.yaml
@@ -342,7 +346,7 @@ phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 G
 	@echo "✓ Same-rack scenario active"
 	@$(MAKE) show-placement
 
-phase3-cross-rack: ## Redeploy DGD cross-rack (prefill rack-01, decode rack-02, 12.5 GB/s KV)
+benchmark-cross-rack: ## Redeploy DGD cross-rack (prefill rack-01, decode rack-02, 12.5 GB/s KV)
 	@echo "==> Switching to cross-rack scenario..."
 	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-cross-rack.yaml
@@ -465,7 +469,7 @@ download-model: ## Download Qwen3-0.6B to host model cache (one-time, ~1.2 GB)
 clean: cluster-down ## Clean up everything
 	@echo "✓ Cleanup complete"
 
-rebuild: clean phase1 ## Rebuild cluster from scratch
+rebuild: clean cluster-setup ## Rebuild cluster from scratch
 	@echo "✓ Cluster rebuilt"
 
 logs-dynamo: ## Show Dynamo logs

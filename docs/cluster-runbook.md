@@ -1,8 +1,8 @@
-# Phase 1 Runbook — Cluster Setup
+# Cluster Setup Runbook
 
 ## Overview
 
-Phase 1 creates a Kind cluster (4 nodes) with rack topology labels. This is the foundation for the scheduling stack and Dynamo workloads.
+`make cluster-setup` creates a Kind cluster (4 nodes) with rack topology labels. This is the foundation for the scheduling stack and Dynamo workloads.
 
 **Cluster Topology:**
 - 1 control plane
@@ -12,7 +12,7 @@ Phase 1 creates a Kind cluster (4 nodes) with rack topology labels. This is the 
 
 ## Prerequisites
 
-`make phase1` automatically runs `make validate-prereqs` before doing anything — running it manually first gives explicit visibility into your system state before any cluster is created, which is useful on first setup.
+`make cluster-setup` automatically runs `make validate-prereqs` before doing anything — running it manually first gives explicit visibility into your system state before any cluster is created, which is useful on first setup.
 
 ```bash
 make validate-prereqs
@@ -25,7 +25,7 @@ make validate-prereqs
 - Helm v3.20+
 
 **GPU (optional for mocker demo):**
-`make phase1` auto-detects GPU presence at `make kind-config` time:
+`make cluster-setup` auto-detects GPU presence at `make kind-config` time:
 - **GPU present** (`/dev/nvidia0` exists): uses `infra/kind-config-gpu.yaml.tpl` — mounts GPU device files into Kind nodes. Requires `nvidia-container-toolkit 1.19+`.
 - **No GPU**: uses `infra/kind-config-no-gpu.yaml.tpl` — no device mounts. Mocker workload runs identically in either case.
 
@@ -39,14 +39,14 @@ GPU 0: NVIDIA GeForce RTX 3070 Ti (UUID: ...)   # if GPU present
 ⚠ No NVIDIA GPU detected - will use software mockers only
 ```
 
-The template selection message (`==> GPU detected — using GPU cluster template`) appears later, during `make phase1` when `kind-config` runs.
+The template selection message (`==> GPU detected — using GPU cluster template`) appears later, during `make cluster-setup` when `kind-config` runs.
 
 ---
 
 ## Execution
 
 ```bash
-make phase1
+make cluster-setup
 ```
 
 This runs in sequence:
@@ -65,7 +65,7 @@ If a specific step fails, run it individually. See `make help` for all available
 ## Validation
 
 ```bash
-make validate-phase1
+make validate-cluster
 ```
 
 Expected output: **7/7 checks passing**
@@ -126,13 +126,13 @@ The inotify limits are set per Kind node via `sysctl` and are not persisted acro
 make fix-inotify-limits
 ```
 
-For any issue not covered here, `make clean` followed by `make phase1` is the fastest recovery path in a demo environment.
+For any issue not covered here, `make clean` followed by `make cluster-setup` is the fastest recovery path in a demo environment.
 
 ---
 
 ## Next Steps
 
-Proceed to Phase 2: [`docs/phase2-runbook.md`](phase2-runbook.md)
+Proceed to stack installation: [`docs/stack-runbook.md`](stack-runbook.md)
 
 ---
 

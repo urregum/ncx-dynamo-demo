@@ -1,6 +1,6 @@
 #!/bin/bash
-# Phase 1 Validation Script
-# Validates that cluster is properly configured and ready for Phase 2
+# Cluster Validation Script
+# Validates that cluster is properly configured and ready for stack installation
 
 set -u
 
@@ -13,7 +13,7 @@ PASS=0
 FAIL=0
 
 echo "========================================="
-echo "Phase 1 Validation"
+echo "Cluster Validation"
 echo "========================================="
 echo ""
 
@@ -75,7 +75,7 @@ if [ "$GPU_NODES" -eq 3 ]; then
     check_pass "GPU resources advertised on all 3 worker nodes"
 else
     check_fail "GPU resources found on $GPU_NODES nodes (expected 3)"
-    echo "   Run: make advertise-gpu-resources  (see docs/phase1-runbook.md)"
+    echo "   Run: make advertise-gpu-resources  (see docs/cluster-runbook.md)"
 fi
 echo ""
 
@@ -142,14 +142,14 @@ echo -e "Failed: ${RED}$FAIL${NC}"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo -e "${GREEN}✓ Phase 1 validation PASSED${NC}"
+    echo -e "${GREEN}✓ Cluster validation PASSED${NC}"
     echo ""
-    echo "Cluster is ready for Phase 2 (Dynamo + schedulers installation)"
+    echo "Cluster is ready for stack installation (make stack-install)"
     exit 0
 else
-    echo -e "${RED}✗ Phase 1 validation FAILED${NC}"
+    echo -e "${RED}✗ Cluster validation FAILED${NC}"
     echo ""
-    echo "Please fix the failed checks before proceeding to Phase 2"
-    echo "See docs/phase1-runbook.md for troubleshooting guidance"
+    echo "Please fix the failed checks before proceeding to stack installation"
+    echo "See docs/cluster-runbook.md for troubleshooting guidance"
     exit 1
 fi

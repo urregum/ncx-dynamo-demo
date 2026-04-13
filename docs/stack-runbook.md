@@ -1,8 +1,8 @@
-# Phase 2 Runbook — Scheduling Stack
+# Stack Installation Runbook
 
 ## Overview
 
-Phase 2 installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo platform. A placeholder workload is deployed as a gang scheduling smoke test — confirming the mechanism works with a trivial workload before Dynamo workers are introduced. It is removed at the start of Phase 3 to free node resources for the DGD.
+`make stack-install` installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo platform. A placeholder workload is deployed as a gang scheduling smoke test — confirming the mechanism works with a trivial workload before Dynamo workers are introduced. It is removed at the start of any demo track (`mocker-deploy`, etc.) to free node resources for the DGD.
 
 **What Gets Installed:**
 - **KAI Scheduler v0.14.0** — Gang scheduling, queue management
@@ -14,7 +14,7 @@ Phase 2 installs the scheduling stack: KAI Scheduler, Grove operator, and Dynamo
 
 ## Prerequisites
 
-`make phase2` automatically runs `make validate-phase1` before installing anything — running it manually first gives explicit visibility into Phase 1 state before the scheduling stack is installed.
+`make stack-install` automatically runs `make validate-cluster` before installing anything — running it manually first gives explicit visibility into cluster state before the scheduling stack is installed.
 
 From Phase 1:
 - ✅ Kind cluster with 4 nodes (1 control plane + 3 workers in 2 racks)
@@ -22,19 +22,19 @@ From Phase 1:
 - ✅ Rack topology labels
 
 New for Phase 2:
-- NGC API credentials (see setup below) — required before running `make phase2`
+- NGC API credentials (see setup below) — required before running `make stack-install`
 - Qwen3-0.6B model pre-staged: `make download-model` (for Phase 3)
 
 ### NGC API Key Setup
 
 The Dynamo operator image (`nvcr.io/nvidia/ai-dynamo/kubernetes-operator`) is hosted on NVIDIA's NGC registry. Get a key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys) (free NVIDIA developer account required).
 
-Two forms of authentication are required before running `make phase2`:
-- **Docker login on host** — so `make phase2` can pull and load the operator image into Kind nodes
-- **Kubernetes imagePullSecret** — so pods can pull NGC images at runtime (created automatically by `make phase2`)
+Two forms of authentication are required before running `make stack-install`:
+- **Docker login on host** — so `make stack-install` can pull and load the operator image into Kind nodes
+- **Kubernetes imagePullSecret** — so pods can pull NGC images at runtime (created automatically by `make stack-install`)
 
 > [!IMPORTANT]
-> Docker login to `nvcr.io` must be completed before running `make phase2`. This is a manual step — `make phase2` will fail at the prepull stage if credentials are absent. Run `make check-ngc-login` to verify before proceeding.
+> Docker login to `nvcr.io` must be completed before running `make stack-install`. This is a manual step — `make stack-install` will fail at the prepull stage if credentials are absent. Run `make check-ngc-login` to verify before proceeding.
 
 Choose one credential path and complete **both** steps for it:
 
@@ -42,14 +42,14 @@ Choose one credential path and complete **both** steps for it:
 ```bash
 export NGC_API_KEY='<your-key>'
 echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
-# make phase2 picks up NGC_API_KEY automatically for the imagePullSecret
+# make stack-install picks up NGC_API_KEY automatically for the imagePullSecret
 ```
 
 **Option B — key file:**
 ```bash
 mkdir -p ~/.ngc && echo '<your-key>' > ~/.ngc/apikey && chmod 600 ~/.ngc/apikey
 cat ~/.ngc/apikey | docker login nvcr.io -u '$oauthtoken' --password-stdin
-# make phase2 reads ~/.ngc/apikey automatically for the imagePullSecret
+# make stack-install reads ~/.ngc/apikey automatically for the imagePullSecret
 ```
 
 ---
@@ -59,7 +59,7 @@ cat ~/.ngc/apikey | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ### Automated (Recommended)
 
 ```bash
-make phase2
+make stack-install
 ```
 
 **Time:** ~1.5-2 minutes
@@ -79,7 +79,7 @@ This runs all steps:
 ### Automated
 
 ```bash
-make validate-phase2
+make validate-stack
 ```
 
 Expected output: **7/7 checks passing**
@@ -171,13 +171,13 @@ helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
 helm dependency update /tmp/dynamo-chart-src/deploy/helm/charts/platform
 ```
 
-For any issue not covered here, `make clean` followed by `make phase1 phase2` is the fastest recovery path.
+For any issue not covered here, `make clean` followed by `make cluster-setup stack-install` is the fastest recovery path.
 
 ---
 
 ## Next Steps
 
-Proceed to Phase 3: [`docs/phase3-runbook.md`](phase3-runbook.md)
+Proceed to mocker benchmark: [`docs/mocker-benchmark-runbook.md`](mocker-benchmark-runbook.md)
 
 ---
 

@@ -134,9 +134,9 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 
 Setup instructions are in the phase runbooks:
 
-- [Phase 1: Cluster Setup](phase1-runbook.md) — Kind cluster, rack topology, GPU scaffolding
-- [Phase 2: Scheduling Stack](phase2-runbook.md) — KAI, Grove, Dynamo platform, NGC credentials
-- [Phase 3: Benchmarking](phase3-runbook.md) — Mocker deployment, AIPerf, benchmark scenarios
+- [Cluster Setup](cluster-runbook.md) — Kind cluster, rack topology, GPU scaffolding
+- [Stack Installation](stack-runbook.md) — KAI, Grove, Dynamo platform, NGC credentials
+- [Mocker Benchmark](mocker-benchmark-runbook.md) — Mocker deployment, AIPerf, benchmark scenarios
 
 ---
 
@@ -193,9 +193,9 @@ Each gate confirms the architectural invariant that subsequent phases depend on 
 
 | Phase | What It Validates | Architectural Purpose | Command |
 |-------|------------------|----------------------|---------|
-| 1 | Cluster health, rack labels, GPU resources | Rack topology labels are foundational — placement scenarios fail silently without them; GPU advertisement satisfies the operator's resource requirements | `make validate-phase1` |
-| 2 | KAI + Grove + Dynamo running, placeholder gang-scheduled | Confirms gang scheduling is operational before DGD workload depends on it; the placeholder uses the same gang mechanism as real Dynamo workers | `make validate-phase2` |
-| 3 | DGD healthy, inference works, disaggregation confirmed via worker IDs | Confirms prefill and decode are separate pods with the expected KV handoff; `nvext.worker_id` in responses proves the disaggregation path is active | `make validate-phase3` |
+| Cluster | Cluster health, rack labels, GPU resources | Rack topology labels are foundational — placement scenarios fail silently without them; GPU advertisement satisfies the operator's resource requirements | `make validate-cluster` |
+| Stack | KAI + Grove + Dynamo running, placeholder gang-scheduled | Confirms gang scheduling is operational before DGD workload depends on it; the placeholder uses the same gang mechanism as real Dynamo workers | `make validate-stack` |
+| Mocker | DGD healthy, inference works, disaggregation confirmed via worker IDs | Confirms prefill and decode are separate pods with the expected KV handoff; `nvext.worker_id` in responses proves the disaggregation path is active | `make validate-mocker` |
 
 ---
 

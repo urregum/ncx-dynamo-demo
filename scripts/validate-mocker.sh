@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# validate-phase3.sh — Verify Phase 3 mocker stack is healthy
+# validate-mocker.sh — Verify mocker stack is healthy
 #
 # Checks:
 #   1. dynamo-bench DGD exists and is Ready
@@ -110,14 +110,14 @@ fi
 
 echo ""
 echo "========================================================"
-echo " Phase 3 Validation: $PASS passed, $FAIL failed"
+echo " Mocker Validation: $PASS passed, $FAIL failed"
 echo "========================================================"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-  echo "✓ Phase 3 stack is healthy. Ready for benchmarking:"
+  echo "✓ Mocker stack is healthy. Ready for benchmarking:"
   echo "  make run-benchmark"
-  echo "  make phase3-cross-rack && make run-benchmark"
+  echo "  make benchmark-cross-rack && make run-benchmark"
   echo "  make compare-results"
   exit 0
 else

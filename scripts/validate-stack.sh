@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# validate-phase2.sh
-# Automated validation for Phase 2: KAI + Grove + Dynamo operator + placeholder workload.
-# Run after 'make phase2' completes.
+# validate-stack.sh
+# Automated validation for scheduling stack: KAI + Grove + Dynamo operator + placeholder workload.
+# Run after 'make stack-install' completes.
 
 set -euo pipefail
 
@@ -20,7 +20,7 @@ pass() { echo -e "${GREEN}✓${NC} $1"; ((++PASS)); }
 fail() { echo -e "${RED}✗${NC} $1"; ((++FAIL)); }
 
 echo "========================================="
-echo " Phase 2 Validation"
+echo " Stack Validation"
 echo "========================================="
 echo ""
 
@@ -133,17 +133,17 @@ echo -e " Failed: ${RED}${FAIL}${NC}"
 echo ""
 
 if [ "${FAIL}" -eq 0 ]; then
-  echo -e "${GREEN}✓ Phase 2 validation PASSED${NC}"
+  echo -e "${GREEN}✓ Stack validation PASSED${NC}"
   echo ""
   echo "Scheduling stack is ready:"
   echo "  KAI Scheduler  → gang scheduling + queue management"
   echo "  Grove          → PodCliqueSet → PodGang orchestration"
-  echo "  Dynamo         → DynamoGraphDeployment CRD (ready for Phase 3)"
+  echo "  Dynamo         → DynamoGraphDeployment CRD ready"
   echo ""
-  echo "Next step: make phase3 (pull mocker image, deploy Dynamo workers, run AIPerf)"
+  echo "Next step: make mocker-deploy (pull mocker image, deploy Dynamo workers, run AIPerf)"
   exit 0
 else
-  echo -e "${RED}✗ Phase 2 validation FAILED (${FAIL} checks)${NC}"
+  echo -e "${RED}✗ Stack validation FAILED (${FAIL} checks)${NC}"
   echo ""
   echo "Debug commands:"
   echo "  kubectl get pods -A"

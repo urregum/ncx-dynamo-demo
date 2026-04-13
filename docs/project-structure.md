@@ -2,16 +2,16 @@
 
 ```
 ncx-dynamo-demo/
-├── Makefile                              # Orchestration targets (3-phase automation)
+├── Makefile                              # Orchestration targets (cluster-setup → stack-install → demo tracks)
 ├── README.md                             # Project overview
 ├── requirements.txt                      # Python dependencies (aiperf, huggingface_hub)
 ├── .pre-commit-config.yaml               # YAML linting, trailing whitespace
 ├── .gitignore                            # Excludes .venv/, models/, .vscode/, etc.
 ├── docs/
 │   ├── architecture.md                   # Design overview, topology, decisions
-│   ├── phase1-runbook.md                 # Cluster setup instructions
-│   ├── phase2-runbook.md                 # Scheduling stack installation
-│   ├── phase3-runbook.md                 # Mocker deployment, benchmarking
+│   ├── cluster-runbook.md                # Cluster setup instructions
+│   ├── stack-runbook.md                  # Scheduling stack installation
+│   ├── mocker-benchmark-runbook.md       # Mocker deployment, benchmarking
 │   └── project-structure.md              # This file
 ├── manifests/
 │   ├── dynamo-mock-workers-same-rack.yaml        # DGD: same-rack scenario
@@ -25,9 +25,9 @@ ncx-dynamo-demo/
 │   ├── kind-config.yaml                  # Generated from template by make kind-config (gitignored)
 │   └── operator-values.yaml              # Dynamo Helm chart overrides
 ├── scripts/
-│   ├── validate-phase1.sh                # Phase 1 health checks
-│   ├── validate-phase2.sh                # Phase 2 health checks
-│   ├── validate-phase3.sh                # Phase 3 health checks
+│   ├── validate-cluster.sh               # Cluster health checks
+│   ├── validate-stack.sh                 # Scheduling stack health checks
+│   ├── validate-mocker.sh                # Mocker stack health checks
 │   ├── advertise-gpu-resources.sh        # Patches nvidia.com/gpu capacity onto Kind nodes
 │   └── setup-ngc-secret.sh               # Creates NGC imagePullSecret in a namespace
 ├── models/
@@ -50,10 +50,10 @@ ncx-dynamo-demo/
 
 | File | Purpose |
 |------|---------|
-| `Makefile` | Single entry point for all demo operations. Run `make help` for full target list. |
+| `Makefile` | Single entry point for all demo operations. Run `make help` for full target list. Core targets: `cluster-setup`, `stack-install`, `mocker-deploy`. |
 | `infra/kind-config-{gpu,no-gpu}.yaml.tpl` | Cluster templates. `make kind-config` selects based on `/dev/nvidia0` presence. |
 | `manifests/dynamo-mock-workers-*.yaml` | DynamoGraphDeployment resources — one per placement scenario. |
-| `scripts/validate-phase*.sh` | Exit-0 on pass, exit-1 on failure. Called by `make validate-phase*` targets. |
+| `scripts/validate-cluster.sh`, `validate-stack.sh`, `validate-mocker.sh` | Exit-0 on pass, exit-1 on failure. Called by `make validate-cluster`, `validate-stack`, `validate-mocker`. |
 | `scripts/setup-ngc-secret.sh` | Creates `ngc-registry` imagePullSecret. Reads `NGC_API_KEY` or `~/.ngc/apikey`. |
 | `scripts/advertise-gpu-resources.sh` | Patches `nvidia.com/gpu` capacity onto Kind worker nodes via `kubectl`. |
 

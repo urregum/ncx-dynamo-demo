@@ -1,8 +1,8 @@
-# Phase 3 Runbook — Benchmarking with Dynamo Mocker
+# Mocker Benchmark Runbook
 
 ## Overview
 
-Phase 3 deploys Dynamo mocker workers and runs AIPerf latency benchmarks to compare same-rack vs cross-rack placement. The mocker simulates disaggregated inference by parameterizing KV-cache transfer bandwidth — no GPU required.
+This track deploys Dynamo mocker workers and runs AIPerf latency benchmarks to compare same-rack vs cross-rack placement. The mocker simulates disaggregated inference by parameterizing KV-cache transfer bandwidth — no GPU required.
 
 **What Happens:**
 1. Remove Phase 2 placeholder workload (frees node resources for the DGD)
@@ -12,17 +12,17 @@ Phase 3 deploys Dynamo mocker workers and runs AIPerf latency benchmarks to comp
 5. Compare results side-by-side
 
 > [!NOTE]
-> `make phase3` is not idempotent — the placeholder removal is a one-way transition. If phase3 fails after that point, `make clean` followed by the full sequence is required to restore a valid phase2 state. See [Troubleshooting](#troubleshooting) for details.
+> `make mocker-deploy` is not idempotent — the placeholder removal is a one-way transition. If it fails after that point, `make clean` followed by the full sequence is required to restore a valid stack state. See [Troubleshooting](#troubleshooting) for details.
 
 ---
 
 ## Prerequisites
 
-`make phase3` automatically runs `make validate-phase2` before deploying workers — running it manually first gives explicit visibility into Phase 2 state.
+`make mocker-deploy` automatically runs `make validate-stack` before deploying workers — running it manually first gives explicit visibility into stack state.
 
 From Phase 2:
 - ✅ KAI + Grove + Dynamo platform running
-- ✅ Placeholder workload validated (confirms gang scheduling; removed by `make phase3`)
+- ✅ Placeholder workload validated (confirms gang scheduling; removed by `make mocker-deploy`)
 
 New for Phase 3:
 - ~2 GB free disk space (for Qwen3-0.6B model cache)
@@ -40,15 +40,15 @@ make install-aiperf
 make download-model
 
 # Deploy and validate
-make phase3
-make validate-phase3
+make mocker-deploy
+make validate-mocker
 
-# Benchmark same-rack scenario (already deployed by make phase3)
+# Benchmark same-rack scenario (already deployed by make mocker-deploy)
 make show-placement          # Confirm prefill + decode both on rack-01
 make run-benchmark           # Saves results/same-rack.json
 
 # Switch to cross-rack and benchmark
-make phase3-cross-rack
+make benchmark-cross-rack
 make show-placement          # Confirm decode moved to rack-02
 make run-benchmark           # Saves results/cross-rack.json
 
@@ -81,13 +81,13 @@ The weights themselves (~1.2 GB of the total) are present in the cache but unuse
 
 **Step 3: Deploy mocker workers**
 ```bash
-make phase3
-# Validates Phase 2, pulls mocker image, removes placeholder, deploys same-rack DGD
+make mocker-deploy
+# Validates stack, pulls mocker image, removes placeholder, deploys same-rack DGD
 ```
 
 **Step 4: Validate**
 ```bash
-make validate-phase3
+make validate-mocker
 # 6-check validation:
 #  1. DGD state = "successful"
 #  2. 3+ pods Running (Frontend, Prefill, Decode)
@@ -106,7 +106,7 @@ make run-benchmark     # ISL=4096, OSL=32, concurrency=4, 20 requests
 
 **Step 6: Switch to cross-rack and benchmark**
 ```bash
-make phase3-cross-rack
+make benchmark-cross-rack
 make show-placement    # Confirm decode moved to rack-02
 make run-benchmark     # Saves results/cross-rack.json
 ```
@@ -254,13 +254,13 @@ kubectl run -it --rm debug --image=curlimages/curl -n dynamo-demo -- \
   curl http://dynamo-bench-frontend:8000/health
 ```
 
-### Re-running make phase3 Fails at validate-phase2
+### Re-running make mocker-deploy Fails at validate-stack
 
-`make phase3` removes the placeholder workload as its first step. If phase3 then fails for any reason, the placeholder is gone and `make validate-phase2` will fail at check 6 on any subsequent run. This is expected — the placeholder's existence is the phase2 completion marker, and once removed it cannot be trivially restored without re-running the full sequence.
+`make mocker-deploy` removes the placeholder workload as its first step. If it then fails for any reason, the placeholder is gone and `make validate-stack` will fail at check 6 on any subsequent run. This is expected — the placeholder's existence is the stack completion marker, and once removed it cannot be trivially restored without re-running the full sequence.
 
-**Recovery:** `make clean` followed by `make phase1 phase2 phase3`.
+**Recovery:** `make clean` followed by `make cluster-setup stack-install mocker-deploy`.
 
-For any issue not covered here, `make clean` followed by running all three phases is the fastest recovery path.
+For any issue not covered here, `make clean` followed by running all three steps is the fastest recovery path.
 
 ---
 
@@ -274,7 +274,7 @@ For any issue not covered here, `make clean` followed by running all three phase
 | `results/cross-rack.json` | AIPerf output (written by `make run-benchmark`) |
 | `results/examples/` | Reference outputs from Ubuntu reference environment |
 | `models/hf-cache/` | Qwen3-0.6B model cache |
-| `scripts/validate-phase3.sh` | 6-check validation script — run via `make validate-phase3` |
+| `scripts/validate-mocker.sh` | 6-check validation script — run via `make validate-mocker` |
 | `.venv/` | Python virtual environment (aiperf, huggingface_hub) |
 
 ---

@@ -31,21 +31,21 @@ The 400 GB/s and 12.5 GB/s figures represent intra-rack (NVLink-class) and inter
 
 ## Architecture
 
-Three-phase setup:
+Two required setup steps, then independent demo tracks:
 
-### Phase 1: Cluster
+### Cluster Setup
 - Kind cluster (1 control plane + 3 workers)
 - Rack topology labels (`rack-01`, `rack-02`) — mirrors the node labels real cluster infrastructure applies for topology-aware placement
 - Fake GPU resource advertisement satisfies Dynamo operator requirements; no GPU is consumed by the mocker workload
 - GPU device passthrough (if a GPU is present) is reserved for a future real-inference extension
 
-### Phase 2: Scheduling Stack
+### Scheduling Stack
 - **KAI Scheduler** — Gang scheduling, queue management, topology-aware placement
 - **Grove** — Converts `PodCliqueSet` CRDs into ganged deployments
 - **Dynamo Platform** — Disaggregated inference operator + NATS coordination bus
 - Placeholder workload validates gang scheduling before real workers are deployed
 
-### Phase 3: Benchmarking
+### Mocker Benchmark (demo track)
 - **Dynamo Mocker** — Simulates disaggregated inference by parameterizing KV transfer bandwidth; no GPU required
 - **AIPerf** — Measures latency (p50, p99) and throughput
 - Both scenarios use forced node affinity to demonstrate the latency cost that topology-aware scheduling is designed to prevent
@@ -60,27 +60,27 @@ Full instructions are in the runbooks. A brief summary of the key execution step
 
 **Prerequisites** — `make validate-prereqs` (requires Docker, Kind, kubectl, Helm)
 
-**Phase 1 — Create cluster:**
+**Step 1 — Create cluster:**
 ```bash
-make phase1
+make cluster-setup
 ```
-Auto-detects GPU presence; uses a mocker-only cluster template if no GPU is found. See [`docs/phase1-runbook.md`](docs/phase1-runbook.md).
+Auto-detects GPU presence; uses a mocker-only cluster template if no GPU is found. See [`docs/cluster-runbook.md`](docs/cluster-runbook.md).
 
-**Phase 2 — Install scheduling stack:**
+**Step 2 — Install scheduling stack:**
 ```bash
-make phase2
+make stack-install
 ```
-Requires an NGC API key (free NVIDIA developer account is sufficient). See [`docs/phase2-runbook.md`](docs/phase2-runbook.md) for credential setup before running this step.
+Requires an NGC API key (free NVIDIA developer account is sufficient). See [`docs/stack-runbook.md`](docs/stack-runbook.md) for credential setup before running this step.
 
-**Phase 3 — Run benchmarks:**
+**Mocker benchmark track:**
 ```bash
-make download-model          # One-time: cache Qwen3-0.6B (~1.5 GB)
-make phase3                  # Deploy mocker workers
-make phase3-same-rack && make run-benchmark
-make phase3-cross-rack && make run-benchmark
-make compare-results         # Print side-by-side latency table
+make download-model              # One-time: cache Qwen3-0.6B (~1.5 GB)
+make mocker-deploy               # Deploy mocker workers (same-rack)
+make benchmark-same-rack && make run-benchmark
+make benchmark-cross-rack && make run-benchmark
+make compare-results             # Print side-by-side latency table
 ```
-See [`docs/phase3-runbook.md`](docs/phase3-runbook.md).
+See [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md).
 
 ---
 
@@ -89,9 +89,9 @@ See [`docs/phase3-runbook.md`](docs/phase3-runbook.md).
 | Document | Purpose |
 |----------|---------|
 | [`docs/architecture.md`](docs/architecture.md) | Design decisions, topology, GPU strategy, future extensions |
-| [`docs/phase1-runbook.md`](docs/phase1-runbook.md) | Cluster creation, prerequisites, validation |
-| [`docs/phase2-runbook.md`](docs/phase2-runbook.md) | Scheduling stack installation, NGC credential setup |
-| [`docs/phase3-runbook.md`](docs/phase3-runbook.md) | Mocker deployment, AIPerf benchmarking, troubleshooting |
+| [`docs/cluster-runbook.md`](docs/cluster-runbook.md) | Cluster creation, prerequisites, validation |
+| [`docs/stack-runbook.md`](docs/stack-runbook.md) | Scheduling stack installation, NGC credential setup |
+| [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md) | Mocker deployment, AIPerf benchmarking, troubleshooting |
 | [`docs/project-structure.md`](docs/project-structure.md) | File layout and generated artifact reference |
 
 ---
@@ -157,4 +157,4 @@ Built on open source projects (all Apache 2.0 licensed):
 ---
 
 **Last Updated:** 2026-04-12
-**Status:** Phase 3 Complete — benchmarking ready
+**Status:** Mocker benchmark track complete — benchmarking ready
