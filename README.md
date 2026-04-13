@@ -17,7 +17,7 @@ The critical constraint: after prefill completes, the KV cache must transfer to 
 
 ### What You'll See
 
-The table below shows sample results from the Ubuntu reference environment. Absolute numbers will differ, but the ratios are stable — they reflect real bandwidth constraints handled by the scheduling layers Dynamo uses.
+The table below shows sample results from the Ubuntu reference environment. Absolute numbers will differ across machines — the stable signal is the absolute latency delta between scenarios (~15–19 ms), which reflects the KV transfer cost at ISL=4096. The ratio varies because slower hardware raises the base overhead, diluting it.
 
 | Scenario | p50 Latency | p99 Latency | Throughput |
 |----------|-------------|-------------|-----------|
@@ -111,7 +111,7 @@ See [`docs/phase3-runbook.md`](docs/phase3-runbook.md).
 | Capability | Status |
 |------------|--------|
 | Gang scheduling and rack-aware placement | Demonstrated |
-| KV-cache transfer latency impact | Measured (3× difference) |
+| KV-cache transfer latency impact | Measured (placement-dependent delta) |
 | Dynamo operator integration with Kubernetes | Validated |
 | Fast cluster bring-up/teardown | Supported (reproducible via Makefile) |
 | Real GPU inference | Not included (mocker only) |

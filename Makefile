@@ -94,6 +94,7 @@ kind-config: ## Generate infra/kind-config.yaml (auto-selects GPU or no-GPU clus
 	@echo "✓ infra/kind-config.yaml written"
 
 cluster-up: kind-config ## Create kind cluster with rack topology
+	@mkdir -p $(MODELS_DIR)
 	@if kind get clusters 2>/dev/null | grep -q "^$(CLUSTER_NAME)$$"; then \
 		echo "==> Cluster $(CLUSTER_NAME) already exists"; \
 	else \
@@ -161,6 +162,10 @@ phase2: validate-phase1 check-ngc-login prepull-operator install-schedulers inst
 	@echo ""
 	@echo "Run 'make validate-phase2' to verify all checks pass."
 	@echo "Next step: make phase3"
+	@echo ""
+	@echo "Optional one-time pre-phase3 setup:"
+	@echo "  make install-aiperf       # install aiperf benchmark tool into .venv"
+	@echo "  make download-mocker-image  # pre-pull GPU mocker image into kind nodes (~500 MB)"
 
 validate-phase1: ## Validate Phase 1 cluster is ready
 	@./scripts/validate-phase1.sh
@@ -181,8 +186,10 @@ install-schedulers: ## Install KAI scheduler (v$(KAI_VERSION)) and Grove (v$(GRO
 		oci://ghcr.io/kai-scheduler/kai-scheduler/kai-scheduler \
 		-n $(NS_KAI) --create-namespace \
 		--version $(KAI_VERSION) \
-		--set admission.gpuPodRuntimeClassName=null \
+		--set admission.gpuPodRuntimeClassName="" \
 		--wait --timeout 5m
+	@echo "==> Creating KAI default queues..."
+	@kubectl apply -f infra/kai-default-queues.yaml
 	@echo "✓ KAI Scheduler installed"
 	@echo ""
 	@echo "==> Installing Grove $(GROVE_VERSION)..."
@@ -378,14 +385,13 @@ BENCHMARK_CONC   := 4
 BENCHMARK_REQS   := 20
 BENCHMARK_MODEL  := Qwen/Qwen3-0.6B
 
-install-aiperf: ## Install aiperf into .venv (one-time setup, requires .venv/bin/pip)
+install-aiperf: ## Install aiperf into .venv (creates .venv if absent)
 	@echo "==> Installing aiperf into .venv..."
 	@if [ ! -x "$(CURDIR)/.venv/bin/pip" ]; then \
-		echo "ERROR: .venv not found."; \
-		echo "  Run: python3 -m venv .venv && .venv/bin/pip install huggingface_hub hf_transfer aiperf"; \
-		exit 1; \
+		echo "  .venv not found — creating..."; \
+		python3 -m venv $(CURDIR)/.venv; \
 	fi
-	@$(CURDIR)/.venv/bin/pip install --quiet aiperf
+	@$(CURDIR)/.venv/bin/pip install --quiet huggingface_hub hf_transfer aiperf
 	@echo "✓ aiperf installed in .venv"
 
 run-benchmark: ## Benchmark active DGD via port-forward; saves JSON to results/<scenario>.json
@@ -447,13 +453,12 @@ download-model: ## Download Qwen3-0.6B to host model cache (one-time, ~1.2 GB)
 	@echo "==> Creating model cache directory: $(MODELS_DIR)"
 	@mkdir -p $(MODELS_DIR)
 	@echo "==> Downloading $(QWEN_MODEL) via huggingface-cli..."
-	@VENV_HF=$(CURDIR)/.venv/bin/hf; \
-	if [ ! -x "$$VENV_HF" ]; then \
-		echo "ERROR: .venv/bin/hf not found."; \
-		echo "  Run: python3 -m venv .venv && .venv/bin/pip install huggingface_hub hf_transfer"; \
-		exit 1; \
-	fi; \
-	$$VENV_HF download $(QWEN_MODEL) --cache-dir $(MODELS_DIR)
+	@if [ ! -x "$(CURDIR)/.venv/bin/pip" ]; then \
+		echo "  .venv not found — creating..."; \
+		python3 -m venv $(CURDIR)/.venv; \
+		$(CURDIR)/.venv/bin/pip install --quiet huggingface_hub hf_transfer; \
+	fi
+	@$(CURDIR)/.venv/bin/hf download $(QWEN_MODEL) --cache-dir $(MODELS_DIR)
 	@echo "✓ Model cached at $(MODELS_DIR)"
 	@echo "  (Kind nodes will mount this at /root/.cache/huggingface)"
 

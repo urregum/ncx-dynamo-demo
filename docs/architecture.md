@@ -108,7 +108,7 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 - Decode: rack-01 (node affinity)
 - KV bandwidth: 400 GB/s (simulates NVLink3 intra-rack)
 
-**Expected Result at ISL=4096, concurrency=4:**
+**Reference Result at ISL=4096, concurrency=4:**
 - p50: ~9.4 ms
 - p99: ~12.6 ms
 - Throughput: ~374 req/s
@@ -121,10 +121,10 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 - Decode: rack-02 (node affinity)
 - KV bandwidth: 12.5 GB/s (simulates 100 GbE inter-rack link)
 
-**Expected Result at ISL=4096, concurrency=4:**
-- p50: ~28.3 ms (~3× same-rack)
+**Reference Result at ISL=4096, concurrency=4:**
+- p50: ~28.3 ms (~19 ms above same-rack)
 - p99: ~29.9 ms
-- Throughput: ~136 req/s (~2.7× difference)
+- Throughput: ~136 req/s
 
 **Key Insight:** Placement dramatically affects latency due to KV transfer cost. The mock allows manipulation of network parameters to show the effect without real network modification.
 
@@ -204,7 +204,7 @@ Each gate confirms the architectural invariant that subsequent phases depend on 
 ### What This Demo Measures
 - **KV Transfer Latency:** Dominant component of end-to-end latency in disaggregated inference
 - **Scheduling Overhead:** KAI gang scheduling, Grove PodCliqueSet → deployment conversion
-- **Placement Sensitivity:** How rack affinity affects latency (3× difference in test scenario)
+- **Placement Sensitivity:** How rack affinity affects latency (~15–19 ms absolute delta at ISL=4096; ratio varies by host CPU speed)
 
 ### What This Demo Does NOT Measure
 - Compute latency (suppressed via `--speedup-ratio 0`)
