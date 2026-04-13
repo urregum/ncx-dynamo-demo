@@ -132,34 +132,11 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 
 ## Environment Setup
 
-### Prerequisites on Host
-- Docker (28+)
-- Kind (v0.31.0+)
-- kubectl (v1.34+)
-- Helm (v3.20+)
-- NGC API key — required for Phase 2 operator image pull and Kubernetes imagePullSecret
-- nvidia-container-toolkit (1.19+) — required only when GPU is present; `make kind-config` auto-selects the GPU or no-GPU cluster template based on `/dev/nvidia0` presence
+Setup instructions are in the phase runbooks:
 
-### Installation
-
-**Phase 1: Cluster**
-```bash
-make validate-prereqs
-make phase1              # Creates Kind cluster with rack topology
-```
-
-**Phase 2: Scheduling Stack**
-```bash
-make phase2              # Installs KAI + Grove + Dynamo
-```
-
-**Phase 3: Benchmarking**
-```bash
-make phase3              # Downloads mocker, deploys DGD, installs aiperf
-make phase3-same-rack    # Deploy same-rack scenario
-make run-benchmark       # Run aiperf profile
-make compare-results     # Print side-by-side latency table
-```
+- [Phase 1: Cluster Setup](phase1-runbook.md) — Kind cluster, rack topology, GPU scaffolding
+- [Phase 2: Scheduling Stack](phase2-runbook.md) — KAI, Grove, Dynamo platform, NGC credentials
+- [Phase 3: Benchmarking](phase3-runbook.md) — Mocker deployment, AIPerf, benchmark scenarios
 
 ---
 
@@ -212,11 +189,13 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 
 ## Validation Checkpoints
 
-| Phase | Validation | Command |
-|-------|-----------|---------|
-| 1 | Cluster health, rack labels, GPU resources | `make validate-phase1` |
-| 2 | KAI + Grove + Dynamo running, workload ganged | `make validate-phase2` |
-| 3 | DGD healthy, inference works, disaggregation confirmed | `make validate-phase3` |
+Each gate confirms the architectural invariant that subsequent phases depend on — not just that components are running, but that the property the demo relies on is actually present.
+
+| Phase | What It Validates | Architectural Purpose | Command |
+|-------|------------------|----------------------|---------|
+| 1 | Cluster health, rack labels, GPU resources | Rack topology labels are foundational — placement scenarios fail silently without them; GPU advertisement satisfies the operator's resource requirements | `make validate-phase1` |
+| 2 | KAI + Grove + Dynamo running, placeholder gang-scheduled | Confirms gang scheduling is operational before DGD workload depends on it; the placeholder uses the same gang mechanism as real Dynamo workers | `make validate-phase2` |
+| 3 | DGD healthy, inference works, disaggregation confirmed via worker IDs | Confirms prefill and decode are separate pods with the expected KV handoff; `nvext.worker_id` in responses proves the disaggregation path is active | `make validate-phase3` |
 
 ---
 
@@ -233,39 +212,34 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 - Tokenizer latency (single batch, no batching optimization)
 - Production network characteristics (simulated via bandwidth param)
 
-### Scaling Limitations
-- Kind cluster suitable for 3-10 pod workloads; scales poorly beyond
-- Mocker workers do not use the GPU; no resource contention between pods in the current demo
-- A real inference workload would be constrained by the single RTX 3070 Ti (see [Future Extensions](#future-extensions))
-
 ---
 
-## Future Extensions
+## Potential Extensions
 
-### If You Later Add KV Block Manager (KVBM) Demo
+### KV Block Manager (KVBM) Demo
 - Extend a decode worker with KVBM configuration (block eviction policy, prefix cache size)
 - Demonstrates cache block management and prefix reuse on a single GPU without requiring multi-GPU transfer paths
 - NIXL (NVIDIA Interconnect Library — the real KV transfer substrate using NVLink/RDMA) is not applicable in this environment; the mocker simulates its latency consequence only
 - Does not require changes to the current 1:1 prefill/decode topology
 
-### If You Later Add Real Inference
+### Real GPU Inference
 - Replace mocker image with vLLM runtime
 - Pre-stage vLLM image on nodes during cluster creation
 - Adjust KV bandwidth to match actual hardware (e.g., NVLink3 = 900 GB/s)
 - Extend AIPerf validation to check token generation quality
 
-### If You Later Add Multi-Cluster
+### Multi-Cluster Federation
 - Deploy multiple kind clusters in different network zones
 - Use Istio/Envoy for cross-cluster traffic
 - Test KAI scheduler with global queue spanning clusters
 
-### If You Later Add Scheduling Scenario Demonstrations (Phase 5)
+### Scheduling Scenario Demonstrations
 - Introduce asymmetric prefill/decode replica counts to reflect production-realistic topology (e.g., 1 prefill, 2–3 decode workers)
 - The current 1:1 prefill/decode ratio is intentional for mocker baseline: latency is determined entirely by KV transfer, not worker count, so asymmetry adds no signal. Phase 5 would introduce real or semi-real compute where decode saturation becomes meaningful.
 - PodCliqueSet and DGD manifests will need replica count and scheduling group updates
 - `make show-placement` and validation scripts may need updates to expect more than 3 pods
 
-### If You Later Add Observability
+### Observability Stack
 - Deploy Prometheus + Grafana (already running in many demos)
 - Scrape Dynamo operator metrics (request rates, queue depth)
 - Correlate with latency measurements from AIPerf
@@ -282,10 +256,11 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 | **KV Cache** | Key-Value cache produced by prefill, consumed by decode |
 | **Disaggregation** | Splitting inference into prefill + decode stages on different workers |
 | **ISL** | Input Sequence Length (prompt tokens); affects KV size |
+| **ITL** | Inter-Token Latency; time between successive output tokens during decode; an SLA target for production Dynamo deployments |
+| **NIXL** | NVIDIA Interconnect Library; the real KV transfer substrate using NVLink/RDMA in production; the mocker simulates its latency consequence without requiring NIXL |
 | **OSL** | Output Sequence Length (response tokens); drives decode iterations |
 
 ---
 
-**Architecture Version:** 1.0  
-**Last Updated:** 2026-04-09  
+**Last Updated:** 2026-04-13
 **Audience:** Demo users, documentation readers, future contributors
