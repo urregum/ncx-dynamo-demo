@@ -21,14 +21,24 @@ fail() { echo "  [FAIL] $*"; ((++FAIL)); }
 header() { echo ""; echo "==> $*"; }
 
 header "Check 1: DGD exists and is Ready"
-STATE=$(kubectl get dynamographdeployment dynamo-bench -n "$NS" \
-  -o jsonpath='{.status.state}' 2>/dev/null || echo "")
-READY_COND=$(kubectl get dynamographdeployment dynamo-bench -n "$NS" \
-  -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
-if [ "$STATE" = "successful" ] || [ "$READY_COND" = "True" ]; then
+DGD_READY=false
+for i in $(seq 1 20); do
+  STATE=$(kubectl get dynamographdeployment dynamo-bench -n "$NS" \
+    -o jsonpath='{.status.state}' 2>/dev/null || echo "")
+  READY_COND=$(kubectl get dynamographdeployment dynamo-bench -n "$NS" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+  if [ "$STATE" = "successful" ] || [ "$READY_COND" = "True" ]; then
+    DGD_READY=true
+    break
+  fi
+  if [ "$i" -eq 20 ]; then break; fi
+  printf "  Waiting for DGD Ready (state=%s, attempt %s/20)\\r" "$STATE" "$i"
+  sleep 3
+done
+if [ "$DGD_READY" = true ]; then
   pass "dynamo-bench DGD is Ready (state=${STATE})"
 else
-  fail "dynamo-bench DGD not Ready (state=${STATE}, Ready=${READY_COND})"
+  fail "dynamo-bench DGD not Ready after 60s (state=${STATE}, Ready=${READY_COND})"
 fi
 
 header "Check 2: All 3 DGD pods Running"
@@ -43,13 +53,13 @@ else
   kubectl get pods -n "$NS" -l app.kubernetes.io/part-of=dynamo-bench 2>/dev/null
 fi
 
-header "Check 3: Frontend Service endpoint reachable"
-ENDPOINTS=$(kubectl get endpoints "$SVC" -n "$NS" \
-  -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || echo "")
-if [ -n "$ENDPOINTS" ]; then
-  pass "Frontend endpoint: $ENDPOINTS:8000"
+header "Check 3: Frontend Service exists"
+SVC_PORT=$(kubectl get svc "$SVC" -n "$NS" \
+  -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo "")
+if [ "$SVC_PORT" = "8000" ]; then
+  pass "Frontend Service $SVC exists on port 8000"
 else
-  fail "No endpoints found for $SVC"
+  fail "Service $SVC not found or not on port 8000 (got: '$SVC_PORT')"
 fi
 
 header "Check 4 & 5: /health and inference via port-forward"

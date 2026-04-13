@@ -315,16 +315,17 @@ RESULTS_DIR  := $(CURDIR)/results
 
 phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 GB/s KV)
 	@echo "==> Deploying same-rack scenario..."
+	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-same-rack.yaml
-	@echo "==> Waiting for dynamo-bench pods to be Running (up to 3 minutes)..."
+	@echo "==> Waiting for exactly 3 dynamo-bench pods Running (up to 3 minutes)..."
 	@for i in $$(seq 1 60); do \
 		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -ge 3 ]; then \
-			echo "✓ dynamo-bench pods Running ($$RUNNING pods)"; \
+		if [ "$$RUNNING" -eq 3 ]; then \
+			echo "✓ dynamo-bench pods Running (3 pods)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 60 ]; then \
-			echo "⚠ Pods not ready after 3 minutes — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			echo "⚠ Pods not stable after 3 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
 		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
@@ -336,16 +337,17 @@ phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 G
 
 phase3-cross-rack: ## Redeploy DGD cross-rack (prefill rack-01, decode rack-02, 12.5 GB/s KV)
 	@echo "==> Switching to cross-rack scenario..."
+	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-cross-rack.yaml
-	@echo "==> Waiting for dynamo-bench pods to be Running (up to 3 minutes)..."
+	@echo "==> Waiting for exactly 3 dynamo-bench pods Running (old pods terminate, new ones start, up to 3 minutes)..."
 	@for i in $$(seq 1 60); do \
 		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -ge 3 ]; then \
-			echo "✓ dynamo-bench pods Running ($$RUNNING pods)"; \
+		if [ "$$RUNNING" -eq 3 ]; then \
+			echo "✓ dynamo-bench pods Running (3 pods)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 60 ]; then \
-			echo "⚠ Pods not ready after 3 minutes — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			echo "⚠ Pods not stable after 3 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
 		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
@@ -401,9 +403,12 @@ run-benchmark: ## Benchmark active DGD via port-forward; saves JSON to results/<
 	fi; \
 	echo "  Scenario: $$SCENARIO → $(RESULTS_DIR)/$$SCENARIO.json"; \
 	echo "==> Port-forwarding frontend service to localhost:8000..."; \
-	pkill -f "kubectl port-forward.*dynamo-bench-frontend" 2>/dev/null || true; \
+	if [ -f /tmp/pf-dynamo-bench.pid ]; then kill $$(cat /tmp/pf-dynamo-bench.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-bench.pid; fi; \
+	STALE_PF=$$(lsof -ti tcp:8000 2>/dev/null || true); \
+	if [ -n "$$STALE_PF" ]; then kill $$STALE_PF 2>/dev/null || true; sleep 1; fi; \
 	kubectl port-forward svc/dynamo-bench-frontend -n $(NS_WORKLOAD) 8000:8000 &>/tmp/pf.log & \
 	PF_PID=$$!; \
+	echo $$PF_PID > /tmp/pf-dynamo-bench.pid; \
 	sleep 3; \
 	echo "==> Running benchmark..."; \
 	$$VENV_AIPERF profile $(BENCHMARK_MODEL) \
@@ -415,7 +420,7 @@ run-benchmark: ## Benchmark active DGD via port-forward; saves JSON to results/<
 		--artifact-dir $(RESULTS_DIR) \
 		--profile-export-prefix $$SCENARIO; \
 	BENCH_EXIT=$$?; \
-	kill $$PF_PID 2>/dev/null; wait $$PF_PID 2>/dev/null; true; \
+	kill $$PF_PID 2>/dev/null; wait $$PF_PID 2>/dev/null; rm -f /tmp/pf-dynamo-bench.pid; true; \
 	if [ $$BENCH_EXIT -ne 0 ]; then \
 		echo "ERROR: aiperf failed (exit $$BENCH_EXIT)"; exit $$BENCH_EXIT; \
 	fi; \
@@ -430,29 +435,7 @@ compare-results: ## Print side-by-side latency table from results/ (same-rack vs
 	@printf " %-16s %14s %14s %16s\n" "Scenario" "Latency p50" "Latency p99" "Throughput"
 	@printf " %-16s %14s %14s %16s\n" "" "(ms)" "(ms)" "(req/s)"
 	@echo "----------------------------------------------------------------"
-	@$(CURDIR)/.venv/bin/python3 -c "\
-import json, os; \
-rd = '$(RESULTS_DIR)'; \
-rows = []; \
-for name in ['same-rack', 'cross-rack']: \
-    f = os.path.join(rd, name + '.json'); \
-    if not os.path.exists(f): \
-        print(f' {name:<16}  (no results — run: make phase3-' + name + ' run-benchmark)'); \
-        continue; \
-    d = json.load(open(f)); \
-    p50 = round(d.get('request_latency', {}).get('p50', 0), 2); \
-    p99 = round(d.get('request_latency', {}).get('p99', 0), 2); \
-    tput = round(d.get('request_throughput', {}).get('avg', 0), 1); \
-    rows.append((name, p50, p99, tput)); \
-    print(f' {name:<16} {p50:>12.2f}   {p99:>12.2f}   {tput:>14.1f}'); \
-if len(rows) == 2: \
-    sr, cr = rows; \
-    p50r = cr[1]/sr[1] if sr[1] else 0; \
-    p99r = cr[2]/sr[2] if sr[2] else 0; \
-    tputr = cr[3]/sr[3] if sr[3] else 0; \
-    print('----------------------------------------------------------------'); \
-    print(f' {\"Cross/Same\":<16} {p50r:>11.2f}x   {p99r:>11.2f}x   {tputr:>13.2f}x'); \
-" 2>/dev/null || echo " (error reading results — check .venv and results/ directory)"
+	@$(CURDIR)/.venv/bin/python3 $(CURDIR)/scripts/compare-results.py $(RESULTS_DIR)
 	@echo "================================================================"
 	@echo ""
 

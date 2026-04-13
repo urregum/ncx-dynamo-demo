@@ -109,15 +109,27 @@ else
 fi
 echo ""
 
-# Check 7: System pods healthy
+# Check 7: System pods healthy (poll up to 90s — pods may still be starting after cluster creation)
 echo "[7/7] Checking system pods..."
-UNHEALTHY_PODS=$(kubectl get pods -A --no-headers | grep -v "Running\|Completed" | wc -l || true)
+SYSTEM_READY=false
+for i in $(seq 1 30); do
+    UNHEALTHY_PODS=$(kubectl get pods -A --no-headers 2>/dev/null | grep -v "Running\|Completed" | wc -l | tr -d ' ')
+    if [ "$UNHEALTHY_PODS" -eq 0 ]; then
+        SYSTEM_READY=true
+        break
+    fi
+    if [ "$i" -eq 30 ]; then
+        break
+    fi
+    printf "  Waiting for system pods (%s not ready, attempt %s/30)\\r" "$UNHEALTHY_PODS" "$i"
+    sleep 3
+done
 
-if [ "$UNHEALTHY_PODS" -eq 0 ]; then
+if [ "$SYSTEM_READY" = true ]; then
     check_pass "All system pods running"
 else
     check_fail "$UNHEALTHY_PODS pod(s) not in Running/Completed state"
-    kubectl get pods -A | grep -v "Running\|Completed" | head -10 || true
+    kubectl get pods -A --no-headers | grep -v "Running\|Completed" | head -10 || true
 fi
 echo ""
 
