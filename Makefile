@@ -142,7 +142,17 @@ cluster-status: ## Show cluster status
 # Phase 2: Schedulers + Dynamo + GPU Mockers
 # ============================================================================
 
-phase2: validate-phase1 prepull-operator install-schedulers install-dynamo-platform deploy-workload ## Phase 2: Install scheduling stack + Dynamo operator + placeholder workload
+check-ngc-login: ## Verify nvcr.io docker login credentials are present
+	@if ! grep -q "nvcr.io" $${DOCKER_CONFIG:-$$HOME/.docker}/config.json 2>/dev/null; then \
+		echo "ERROR: Not logged into nvcr.io."; \
+		echo "  Run one of:"; \
+		echo "    echo \"\$$NGC_API_KEY\" | docker login nvcr.io -u '\$$oauthtoken' --password-stdin"; \
+		echo "    cat ~/.ngc/apikey    | docker login nvcr.io -u '\$$oauthtoken' --password-stdin"; \
+		exit 1; \
+	fi
+	@echo "✓ nvcr.io credentials present"
+
+phase2: validate-phase1 check-ngc-login prepull-operator install-schedulers install-dynamo-platform deploy-workload ## Phase 2: Install scheduling stack + Dynamo operator + placeholder workload
 	@echo ""
 	@echo "==> Phase 2 Complete!"
 	@echo ""
@@ -215,7 +225,7 @@ deploy-workload: ## Deploy placeholder DynamoInferenceService workload (nginx, v
 	@kubectl apply -f manifests/dynamo-placeholder-workload.yaml
 	@echo "==> Waiting for gang scheduling (up to 2 minutes)..."
 	@for i in $$(seq 1 40); do \
-		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep -c "Running" || echo 0); \
+		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
 		if [ "$$RUNNING" -ge 3 ]; then \
 			echo "✓ Workload gang-scheduled ($$RUNNING pods Running)"; \
 			break; \

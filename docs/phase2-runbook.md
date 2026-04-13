@@ -29,27 +29,27 @@ New for Phase 2:
 
 The Dynamo operator image (`nvcr.io/nvidia/ai-dynamo/kubernetes-operator`) is hosted on NVIDIA's NGC registry. Get a key at [org.ngc.nvidia.com/setup/api-keys](https://org.ngc.nvidia.com/setup/api-keys) (free NVIDIA developer account required).
 
-Two forms of authentication are needed before running `make phase2`:
+Two forms of authentication are required before running `make phase2`:
+- **Docker login on host** — so `make phase2` can pull and load the operator image into Kind nodes
+- **Kubernetes imagePullSecret** — so pods can pull NGC images at runtime (created automatically by `make phase2`)
 
-**1. Docker login on host** — for `make phase2` to pull the operator image:
+> [!IMPORTANT]
+> Docker login to `nvcr.io` must be completed before running `make phase2`. This is a manual step — `make phase2` will fail at the prepull stage if credentials are absent. Run `make check-ngc-login` to verify before proceeding.
 
+Choose one credential path and complete **both** steps for it:
+
+**Option A — environment variable:**
 ```bash
+export NGC_API_KEY='<your-key>'
 echo "$NGC_API_KEY" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+# make phase2 picks up NGC_API_KEY automatically for the imagePullSecret
 ```
 
-**2. Kubernetes imagePullSecret** — for pods to pull NGC images at runtime.
-`make phase2` creates this automatically via `scripts/setup-ngc-secret.sh`.
-
-The script resolves your key in this order:
-1. `NGC_API_KEY` environment variable (recommended)
-2. File at `NGC_KEY_FILE` path (default: `~/.ngc/apikey`)
-
+**Option B — key file:**
 ```bash
-# Option A: environment variable (no file on disk)
-export NGC_API_KEY='<your-key>'
-
-# Option B: file (use restrictive permissions)
 mkdir -p ~/.ngc && echo '<your-key>' > ~/.ngc/apikey && chmod 600 ~/.ngc/apikey
+cat ~/.ngc/apikey | docker login nvcr.io -u '$oauthtoken' --password-stdin
+# make phase2 reads ~/.ngc/apikey automatically for the imagePullSecret
 ```
 
 ---
@@ -65,7 +65,7 @@ make phase2
 **Time:** ~1.5-2 minutes
 
 This runs all steps:
-1. Pre-pull Dynamo operator image into kind nodes (requires `docker login nvcr.io`)
+1. Pre-pull Dynamo operator image into kind nodes
 2. Install KAI Scheduler (Helm)
 3. Install Grove (Helm)
 4. Install Dynamo platform (Helm from cloned source)
@@ -181,4 +181,4 @@ Proceed to Phase 3: [`docs/phase3-runbook.md`](phase3-runbook.md)
 
 ---
 
-**Last Updated:** 2026-04-12
+**Last Updated:** 2026-04-13
