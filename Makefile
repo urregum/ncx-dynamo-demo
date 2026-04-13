@@ -316,13 +316,20 @@ RESULTS_DIR  := $(CURDIR)/results
 phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 GB/s KV)
 	@echo "==> Deploying same-rack scenario..."
 	@kubectl apply -f manifests/dynamo-mock-workers-same-rack.yaml
-	@echo "==> Waiting for dynamo-bench pods to be Ready..."
-	@kubectl rollout status --watch --timeout=120s \
-		$(shell kubectl get podcliqueset dynamo-bench -n $(NS_WORKLOAD) -o name 2>/dev/null) \
-		-n $(NS_WORKLOAD) 2>/dev/null || true
-	@kubectl wait --for=condition=Ready pods \
-		-l app.kubernetes.io/part-of=dynamo-bench \
-		-n $(NS_WORKLOAD) --timeout=120s
+	@echo "==> Waiting for dynamo-bench pods to be Running (up to 3 minutes)..."
+	@for i in $$(seq 1 60); do \
+		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
+		if [ "$$RUNNING" -ge 3 ]; then \
+			echo "✓ dynamo-bench pods Running ($$RUNNING pods)"; \
+			break; \
+		fi; \
+		if [ "$$i" -eq 60 ]; then \
+			echo "⚠ Pods not ready after 3 minutes — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			exit 1; \
+		fi; \
+		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
+		sleep 3; \
+	done
 	@echo ""
 	@echo "✓ Same-rack scenario active"
 	@$(MAKE) show-placement
@@ -330,10 +337,20 @@ phase3-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 400 G
 phase3-cross-rack: ## Redeploy DGD cross-rack (prefill rack-01, decode rack-02, 12.5 GB/s KV)
 	@echo "==> Switching to cross-rack scenario..."
 	@kubectl apply -f manifests/dynamo-mock-workers-cross-rack.yaml
-	@echo "==> Waiting for pods to be Ready..."
-	@kubectl wait --for=condition=Ready pods \
-		-l app.kubernetes.io/part-of=dynamo-bench \
-		-n $(NS_WORKLOAD) --timeout=120s
+	@echo "==> Waiting for dynamo-bench pods to be Running (up to 3 minutes)..."
+	@for i in $$(seq 1 60); do \
+		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
+		if [ "$$RUNNING" -ge 3 ]; then \
+			echo "✓ dynamo-bench pods Running ($$RUNNING pods)"; \
+			break; \
+		fi; \
+		if [ "$$i" -eq 60 ]; then \
+			echo "⚠ Pods not ready after 3 minutes — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			exit 1; \
+		fi; \
+		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
+		sleep 3; \
+	done
 	@echo ""
 	@echo "✓ Cross-rack scenario active"
 	@$(MAKE) show-placement
