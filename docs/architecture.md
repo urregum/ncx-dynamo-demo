@@ -259,6 +259,12 @@ Dynamo operator auto-injects NATS_SERVER env var into all pods. Workers use NATS
 - Use Istio/Envoy for cross-cluster traffic
 - Test KAI scheduler with global queue spanning clusters
 
+### If You Later Add Scheduling Scenario Demonstrations (Phase 5)
+- Introduce asymmetric prefill/decode replica counts to reflect production-realistic topology (e.g., 1 prefill, 2–3 decode workers)
+- The current 1:1 prefill/decode ratio is intentional for mocker baseline: latency is determined entirely by KV transfer, not worker count, so asymmetry adds no signal. Phase 5 would introduce real or semi-real compute where decode saturation becomes meaningful.
+- PodCliqueSet and DGD manifests will need replica count and scheduling group updates
+- `make show-placement` and validation scripts may need updates to expect more than 3 pods
+
 ### If You Later Add Observability
 - Deploy Prometheus + Grafana (already running in many demos)
 - Scrape Dynamo operator metrics (request rates, queue depth)
