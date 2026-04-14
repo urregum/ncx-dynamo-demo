@@ -135,7 +135,7 @@ flowchart LR
 
     C -->|"HTTP<br/>(prompt)"| F
     F -->|"route"| P
-    P -->|"KV cache<br/>same-rack: 400 GB/s → &lt;1 ms<br/>cross-rack: 12.5 GB/s → ~19 ms"| KV
+    P -->|"KV cache transfer"| KV
     KV --> D
     D -->|"tokens"| F
     F -->|"HTTP<br/>(completion)"| C
