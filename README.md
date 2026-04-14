@@ -31,6 +31,41 @@ The 400 GB/s and 12.5 GB/s figures represent intra-rack (NVLink-class) and inter
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    subgraph SCHED["Scheduling Stack"]
+        direction LR
+        KAI["KAI Scheduler<br/>(gang + topology-aware)"]
+        GROVE["Grove<br/>(DGD → PodCliqueSet)"]
+        DOP["Dynamo Operator<br/>(workload lifecycle)"]
+        NATS2["NATS<br/>(inter-pod coordination)"]
+    end
+
+    subgraph RACK1["rack-01"]
+        FE["Frontend<br/>(KV Router)"]
+        PRE["Prefill Worker"]
+    end
+
+    subgraph RACK2["rack-02  — cross-rack example"]
+        DEC["Decode Worker"]
+    end
+
+    SCHED -->|"schedules"| RACK1
+    SCHED -->|"schedules"| RACK2
+    PRE -->|"KV cache transfer<br/>12.5 GB/s cross-rack"| DEC
+
+    style RACK1 fill:#2e7d32,stroke:#1b5e20,color:#fff
+    style RACK2 fill:#6a1b9a,stroke:#4a148c,color:#fff
+    style SCHED fill:#0d47a1,stroke:#002171,color:#fff
+    style FE fill:#43a047,stroke:#2e7d32,color:#fff
+    style PRE fill:#43a047,stroke:#2e7d32,color:#fff
+    style DEC fill:#7b1fa2,stroke:#6a1b9a,color:#fff
+    style KAI fill:#1565c0,stroke:#0d47a1,color:#fff
+    style GROVE fill:#1565c0,stroke:#0d47a1,color:#fff
+    style DOP fill:#1565c0,stroke:#0d47a1,color:#fff
+    style NATS2 fill:#1565c0,stroke:#0d47a1,color:#fff
+```
+
 Two required setup steps, then independent demo tracks:
 
 ### Cluster Setup

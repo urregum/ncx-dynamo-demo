@@ -4,6 +4,8 @@
 
 This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment — specifically gang scheduling, disaggregated inference architecture, and latency-aware placement on simulated rack topology.
 
+For the full Dynamo system architecture, see the [NVIDIA Dynamo Architecture Overview](https://docs.nvidia.com/dynamo/design-docs/overall-architecture). This demo implements the Request Plane components (Frontend / KV Router, Prefill Worker, Decode Worker) and the scheduling layer (KAI Scheduler, Grove, Dynamo Operator). The Global Planner, KV Block Manager, NIXL, and multi-cluster coordination are out of scope.
+
 **Not a production system.** The environment uses:
 - Local GPU (RTX 3070 Ti) for scheduling validation, not inference compute
 - Kind cluster with containerized nodes
@@ -59,6 +61,26 @@ This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment
 4. KAI Scheduler enforces gang scheduling: all pods in cliques start together or none start — this applies to both the Phase 2 placeholder and the Phase 3 DGD workload. The placeholder is a smoke test of this mechanism using simple nginx pods; it is removed at the start of Phase 3 to free node resources for the DGD on the constrained local cluster.
 5. NATS bus coordinates inter-pod communication (worker discovery, request routing)
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant K8s as Kubernetes API
+    participant DOP as Dynamo Operator
+    participant GR as Grove
+    participant KAI as KAI Scheduler
+    participant Pods as Pod Gang
+
+    User->>K8s: apply DynamoGraphDeployment
+    K8s->>DOP: DGD created
+    DOP->>K8s: create PodCliqueSet
+    K8s->>GR: PodCliqueSet created
+    GR->>K8s: create PodGang
+    K8s->>KAI: PodGang pending
+    Note over KAI: topology-aware placement<br/>(rack labels + node affinity)
+    KAI->>Pods: schedule atomically (all start or none start)
+    Pods-->>User: pods Running
+```
+
 ### Component Topology Rationale
 
 This demo deploys the minimum viable disaggregated configuration: **1 frontend, 1 prefill worker, 1 decode worker**.
@@ -99,6 +121,32 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
 ---
 
 ## Scenario Definitions
+
+Both scenarios measure the same thing: the cost of the KV cache transfer from Prefill Worker to Decode Worker. Only the placement — and the bandwidth that placement implies — changes between them.
+
+```mermaid
+flowchart LR
+    C([Client])
+    F["Frontend<br/>(KV Router)"]
+    P["Prefill Worker"]
+    KV{{"KV Transfer"}}
+    D["Decode Worker"]
+    N(["NATS<br/>(coordination)"])
+
+    C -->|"HTTP<br/>(prompt)"| F
+    F -->|"route"| P
+    P -->|"KV cache<br/>same-rack: 400 GB/s → &lt;1 ms<br/>cross-rack: 12.5 GB/s → ~19 ms"| KV
+    KV --> D
+    D -->|"tokens"| F
+    F -->|"HTTP<br/>(completion)"| C
+
+    P -. "scheduling &<br/>lifecycle events" .-> N
+    D -. "scheduling &<br/>lifecycle events" .-> N
+    F -. "scheduling &<br/>lifecycle events" .-> N
+
+    style KV fill:#f5a623,color:#000,stroke:#c47d0e
+    style N fill:#eeeeee,stroke:#9e9e9e,color:#555
+```
 
 ### Scenario A: Same-Rack (NVLink Analog)
 **Goal:** Measure latency when prefill and decode collocate (best case)
