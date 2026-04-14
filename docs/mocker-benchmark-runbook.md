@@ -48,8 +48,7 @@ make show-placement          # Confirm prefill + decode both on rack-01
 make run-benchmark           # Saves results/same-rack.json
 
 # Switch to cross-rack and benchmark
-make benchmark-cross-rack
-make show-placement          # Confirm decode moved to rack-02
+make benchmark-cross-rack    # Confirm decode moved to rack-02
 make run-benchmark           # Saves results/cross-rack.json
 
 # Compare

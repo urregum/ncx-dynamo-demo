@@ -74,9 +74,10 @@ Requires an NGC API key (free NVIDIA developer account is sufficient). See [`doc
 
 **Mocker benchmark track:**
 ```bash
+make install-aiperf              # One-time: Install aiperf benchmark tool
 make download-model              # One-time: cache Qwen3-0.6B (~1.5 GB)
 make mocker-deploy               # Deploy mocker workers (same-rack)
-make benchmark-same-rack && make run-benchmark
+make run-benchmark               # mocker-deploy creates benchmark-same-rack setup
 make benchmark-cross-rack && make run-benchmark
 make compare-results             # Print side-by-side latency table
 ```
