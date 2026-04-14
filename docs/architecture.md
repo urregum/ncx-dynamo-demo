@@ -129,14 +129,12 @@ flowchart LR
     C([Client])
     F["Frontend<br/>(KV Router)"]
     P["Prefill Worker"]
-    KV{{"KV Transfer"}}
     D["Decode Worker"]
     N(["NATS<br/>(coordination)"])
 
     C -->|"HTTP<br/>(prompt)"| F
     F -->|"route"| P
-    P -->|"KV cache transfer"| KV
-    KV --> D
+    P -->|"KV cache<br/>(same-rack / cross-rack)"| D
     D -->|"tokens"| F
     F -->|"HTTP<br/>(completion)"| C
 
@@ -144,7 +142,6 @@ flowchart LR
     D -. "scheduling &<br/>lifecycle events" .-> N
     F -. "scheduling &<br/>lifecycle events" .-> N
 
-    style KV fill:#f5a623,color:#000,stroke:#c47d0e
     style N fill:#eeeeee,stroke:#9e9e9e,color:#555
 ```
 
