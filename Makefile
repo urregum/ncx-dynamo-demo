@@ -192,8 +192,15 @@ install-schedulers: ## Install KAI scheduler (v$(KAI_VERSION)) and Grove (v$(GRO
 		--version $(KAI_VERSION) \
 		--set admission.gpuPodRuntimeClassName="" \
 		--wait --timeout 5m
+	@echo "==> Restarting KAI Scheduler to ensure fresh credentials after install..."
+	@kubectl rollout restart deployment/kai-scheduler-default -n $(NS_KAI)
+	@kubectl rollout status deployment/kai-scheduler-default -n $(NS_KAI) --timeout=60s
 	@echo "==> Creating KAI default queues..."
-	@kubectl apply -f infra/kai-default-queues.yaml
+	@for i in 1 2 3 4 5; do \
+	    kubectl apply -f infra/kai-default-queues.yaml && break; \
+	    echo "  Webhook not ready yet, retrying in 10s (attempt $$i/5)..."; \
+	    sleep 10; \
+	done
 	@echo "✓ KAI Scheduler installed"
 	@echo ""
 	@echo "==> Installing Grove $(GROVE_VERSION)..."
