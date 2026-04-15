@@ -66,6 +66,17 @@ docs changes, minor for new features, major for significant capability milestone
 
     Closes #452
 
+# Local Setup
+
+After cloning, install pre-commit hooks:
+
+```bash
+pre-commit install
+pre-commit install --hook-type commit-msg
+```
+
+The first command installs file-content hooks (YAML linting, whitespace). The second installs the commit-msg stage hooks. Both are required — omitting the second means conventional-pre-commit and gitlint will not run locally.
+
 # Automation Tools
 * conventional-pre-commit: Enforces Conventional Commits subject format at commit time.
 * gitlint: Enforces Signed-off-by in the commit body at commit time.

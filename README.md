@@ -6,6 +6,12 @@ A lightweight, local Kubernetes demonstration of how **NVIDIA Dynamo** and **NVI
 
 ---
 
+## Demo
+
+[Watch the walkthrough on YouTube](https://www.youtube.com/watch?v=9O3iQbwQq08)
+
+---
+
 ## Disaggregated Inference Foundations
 
 Disaggregated inference splits LLM serving into two stages running on separate workers:
@@ -192,5 +198,5 @@ Built on open source projects (all Apache 2.0 licensed):
 
 ---
 
-**Last Updated:** 2026-04-12
+**Last Updated:** 2026-04-14
 **Status:** Mocker benchmark track complete — benchmarking ready

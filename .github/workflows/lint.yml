@@ -1,0 +1,49 @@
+# lint.yml
+#
+# Runs on every pull request against main:
+#   1. pre-commit — file-content hooks (yaml, whitespace, large-file guard)
+#   2. PR title check — enforces Conventional Commits format on the squash-merge
+#      target commit (PR title becomes the commit message on main)
+#
+# Commit-msg hooks (conventional-pre-commit, gitlint) run locally at commit
+# time; they cannot re-run in CI against already-made commits, so PR title
+# validation is the CI enforcement point for the squash-merge workflow.
+# ============================================================================
+
+name: Lint
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  pre-commit:
+    name: File content hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: pre-commit/action@v3.0.1
+
+  pr-title:
+    name: PR title (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Must match types in CONTRIBUTING.md and .gitlint
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            chore

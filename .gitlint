@@ -1,0 +1,10 @@
+[general]
+# Enforce Signed-off-by in commit body (see CONTRIBUTING.md)
+# conventional-pre-commit handles the title format separately
+contrib = contrib-body-requires-signed-off-by
+
+[title-max-length]
+line-length = 72
+
+[body-max-line-length]
+line-length = 100
