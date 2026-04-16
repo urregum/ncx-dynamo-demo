@@ -10,6 +10,11 @@ A lightweight, local Kubernetes demonstration of how **NVIDIA Dynamo** and **NVI
 
 [Watch the walkthrough on YouTube](https://www.youtube.com/watch?v=9O3iQbwQq08)
 
+The walkthrough covers the **mocker benchmark track**: gang scheduling, rack-aware
+placement, and the measurable latency cost of KV transfer bandwidth. The GPU inference
+track (real vLLM, disaggregated same-GPU) is documented separately in
+[`docs/gpu-inference-runbook.md`](docs/gpu-inference-runbook.md).
+
 ---
 
 ## Disaggregated Inference Foundations
@@ -97,9 +102,12 @@ For full design details, see [`docs/architecture.md`](docs/architecture.md).
 
 ## Getting Started
 
-Full instructions are in the runbooks. A brief summary of the key execution steps:
+Full instructions are in the runbooks. Two independent demo tracks are available after
+core setup — run one, the other, or both.
 
 **Prerequisites** — `make validate-prereqs` (requires Docker, Kind, kubectl, Helm)
+
+### Core Setup (required for all tracks)
 
 **Step 1 — Create cluster:**
 ```bash
@@ -113,16 +121,34 @@ make stack-install
 ```
 Requires an NGC API key (free NVIDIA developer account is sufficient). See [`docs/stack-runbook.md`](docs/stack-runbook.md) for credential setup before running this step.
 
-**Mocker benchmark track:**
+### Track 1 — Mocker Benchmark (no GPU required)
+
+Simulates disaggregated inference by parameterizing KV transfer bandwidth. Measures the
+latency delta between same-rack and cross-rack placement. No NVIDIA GPU required.
+
 ```bash
-make install-aiperf              # One-time: Install aiperf benchmark tool
+make install-aiperf              # One-time: install aiperf benchmark tool
 make download-model              # One-time: cache Qwen3-0.6B (~1.5 GB)
-make mocker-deploy               # Deploy mocker workers (same-rack)
-make run-benchmark               # mocker-deploy creates benchmark-same-rack setup
+make mocker-deploy               # Deploy mocker workers (same-rack scenario)
+make run-benchmark               # Benchmark same-rack latency
 make benchmark-cross-rack && make run-benchmark
-make compare-results             # Print side-by-side latency table
+make compare-results             # Print side-by-side latency comparison
 ```
 See [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md).
+
+### Track 2 — GPU Inference (requires NVIDIA GPU)
+
+Real token generation via disaggregated vLLM on the dedicated `rack-gpu` node. The
+mocker benchmark track does not need to be run first — this track is independent.
+
+```bash
+make download-model              # One-time: cache Qwen3-0.6B (~1.5 GB) if not already done
+make gpu-prepull                 # One-time: load vllm-runtime image into kind nodes (~9 GB)
+make gpu-deploy                  # Deploy disaggregated DGD (Frontend + prefill + decode)
+make gpu-validate                # Smoke test: /health + inference request
+make gpu-stream                  # Streaming response (shows real token arrival)
+```
+See [`docs/gpu-inference-runbook.md`](docs/gpu-inference-runbook.md).
 
 ---
 
@@ -134,6 +160,7 @@ See [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md).
 | [`docs/cluster-runbook.md`](docs/cluster-runbook.md) | Cluster creation, prerequisites, validation |
 | [`docs/stack-runbook.md`](docs/stack-runbook.md) | Scheduling stack installation, NGC credential setup |
 | [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md) | Mocker deployment, AIPerf benchmarking, troubleshooting |
+| [`docs/gpu-inference-runbook.md`](docs/gpu-inference-runbook.md) | Real vLLM inference: deploy, validate, benchmark, troubleshoot |
 | [`docs/project-structure.md`](docs/project-structure.md) | File layout and generated artifact reference |
 
 ---
@@ -156,7 +183,7 @@ See [`docs/mocker-benchmark-runbook.md`](docs/mocker-benchmark-runbook.md).
 | KV-cache transfer latency impact | Measured (placement-dependent delta) |
 | Dynamo operator integration with Kubernetes | Validated |
 | Fast cluster bring-up/teardown | Supported (reproducible via Makefile) |
-| Real GPU inference | Not included (mocker only) |
+| Real GPU inference (disaggregated vLLM) | Included (requires NVIDIA GPU) |
 | Multi-cluster federation | Not included |
 | Observability stack (Prometheus, Grafana) | Not included |
 
@@ -198,5 +225,5 @@ Built on open source projects (all Apache 2.0 licensed):
 
 ---
 
-**Last Updated:** 2026-04-14
-**Status:** Mocker benchmark track complete — benchmarking ready
+**Last Updated:** 2026-04-15
+**Status:** GPU inference track added — real vLLM disaggregated inference on rack-gpu node
