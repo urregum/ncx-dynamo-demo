@@ -12,12 +12,13 @@ name: ncx-demo-cluster
 #   2. NVIDIA container runtime binaries
 #   3. NVML library for GPU monitoring
 #
-# All 3 worker nodes share the single RTX 3070 Ti from the host.
+# All 4 worker nodes share the single RTX 3070 Ti from the host.
 #
 # Topology:
 #   - 1 control plane
 #   - 2 workers in rack "01" (same-rack locality for low latency)
 #   - 1 worker in rack "02" (cross-rack for latency comparison)
+#   - 1 worker in rack "gpu" (dedicated for real vLLM inference)
 # ==============================================================================
 
 nodes:
@@ -93,6 +94,20 @@ nodes:
   - role: worker
     labels:
       rack: "02"
+    extraMounts: *gpu_mounts
+
+  # ----------------------------------------------------------------------------
+  # Worker Node - GPU Rack (Real Inference)
+  # Dedicated node for the GPU inference track (Phase 4).
+  # Mocker-benchmark DGDs target rack in ["01","02"] — this node is excluded
+  # from mocker workloads automatically, no manifest changes required.
+  # Two nvidia.com/gpu units are advertised (see advertise-gpu-resources.sh)
+  # so that disaggregated prefill + decode pods can each request 1 GPU unit
+  # while sharing the single physical RTX 3070 Ti.
+  # ----------------------------------------------------------------------------
+  - role: worker
+    labels:
+      rack: "gpu"
     extraMounts: *gpu_mounts
 
 # ==============================================================================

@@ -1,0 +1,188 @@
+# dynamo-vllm-gpu.yaml
+#
+# DynamoGraphDeployment: disaggregated real vLLM inference on the rack-gpu node.
+#
+# Topology:
+#   Frontend  — KV-aware HTTP router; no rack affinity (lands on rack-01 via KAI).
+#   decode    — VllmDecodeWorker; rack=gpu, nvidia.com/gpu: 1, starts first.
+#   prefill   — VllmPrefillWorker; rack=gpu, nvidia.com/gpu: 1, starts after decode.
+#
+# Both workers share the single physical RTX 3070 Ti (CUDA_VISIBLE_DEVICES=0).
+# The rack-gpu node advertises nvidia.com/gpu: 2 (see advertise-gpu-resources.sh)
+# so each worker can claim 1 unit without conflicting.
+# Resource limits (nvidia.com/gpu) are specified inside extraPodSpec.mainContainer
+# — the DGD CRD does not support a top-level resources field per service.
+#
+# Startup sequencing:
+#   vLLM grabs its full --gpu-memory-utilization budget at startup (not lazily).
+#   Two workers initializing simultaneously can exceed VRAM during the profiling
+#   phase. The prefill pod uses a wait-for-decode init container that polls
+#   decode's Dynamo system health endpoint (port 9090) until it reports
+#   generate:ready. That endpoint only turns ready after vLLM completes its
+#   profiling pass and VRAM is locked — the correct deterministic gate.
+#
+# VRAM budget (RTX 3070 Ti, 8 GiB):
+#   vLLM usable VRAM: ~7.63 GiB (8 GiB minus driver/firmware reservation).
+#   Per-process overhead (CUDA context, PyTorch allocator, NCCL): ~1.6 GiB.
+#   Two workers must fit: 2 × (gmu × 7.63 + 1.6) ≤ 7.63 → gmu ≤ 0.29.
+#   This manifest uses gmu=0.25 to provide startup headroom; the per-process
+#   overhead means the effective KV budget is gmu × 7.63 − 1.2 GiB (weights).
+#   --max-model-len 2048 caps context to fit within the resulting KV budget
+#   (~0.22 GiB KV for 2048 tokens vs 0.42 GiB available after weights).
+#   Qwen3-0.6B default max_seq_len is 40960 — far too large for 8 GiB.
+#   Tuning: higher gmu and larger context are viable on hardware with more VRAM
+#   or fewer per-process overhead bytes. See docs/gpu-inference-runbook.md.
+#
+# Apply:  kubectl apply -f manifests/dynamo-vllm-gpu.yaml
+# Remove: kubectl delete dynamographdeployment dynamo-gpu -n dynamo-demo
+# ============================================================================
+apiVersion: nvidia.com/v1alpha1
+kind: DynamoGraphDeployment
+metadata:
+  name: dynamo-gpu
+  namespace: dynamo-demo
+  labels:
+    app.kubernetes.io/name: dynamo-gpu
+    app.kubernetes.io/part-of: ncx-dynamo-demo
+    demo/scenario: gpu-real
+spec:
+  envs:
+    - name: HF_HUB_OFFLINE
+      value: "1"
+    - name: HF_HUB_DISABLE_PROGRESS_BARS
+      value: "1"
+    - name: HF_HOME
+      value: "/tmp"
+    - name: HF_HUB_CACHE
+      value: "/opt/hf-cache"
+
+  services:
+    # -------------------------------------------------------------------------
+    # Frontend — HTTP router with KV-aware dispatch.
+    # No rack affinity: KAI places it on rack-01 by default.
+    # Uses the same dynamo.frontend module as the mocker track.
+    # -------------------------------------------------------------------------
+    Frontend:
+      componentType: frontend
+      replicas: 1
+      extraPodSpec:
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1-cuda13
+          command: ["/bin/sh", "-c"]
+          args:
+            - python3 -m dynamo.frontend --router-mode kv --http-port 8000
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /opt/hf-cache
+              readOnly: true
+
+    # -------------------------------------------------------------------------
+    # Decode worker — starts first (no sleep); prefill waits for it.
+    # kv_rank=1: decode receives the KV cache from prefill via NixlConnector.
+    # CUDA_VISIBLE_DEVICES=0: shares the physical RTX 3070 Ti with prefill.
+    #
+    # NOTE: Verify --kv-transfer-config JSON format against upstream
+    # ai-dynamo/dynamo examples/backends/vllm/launch/disagg_same_gpu.sh
+    # before first deploy. Rank assignment (0=prefill, 1=decode) follows
+    # vLLM disaggregated prefill convention.
+    # -------------------------------------------------------------------------
+    decode:
+      componentType: worker
+      subComponentType: decode
+      replicas: 1
+      extraPodSpec:
+        runtimeClassName: nvidia
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: rack
+                      operator: In
+                      values: ["gpu"]
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1-cuda13
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              CUDA_VISIBLE_DEVICES=0
+              python3 -m dynamo.vllm
+              --model Qwen/Qwen3-0.6B
+              --enforce-eager
+              --gpu-memory-utilization 0.25
+              --max-model-len 2048
+              --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both","kv_rank":1,"kv_parallel_size":2}'
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /opt/hf-cache
+              readOnly: true
+
+    # -------------------------------------------------------------------------
+    # Prefill worker — starts after decode is confirmed ready via init container.
+    # kv_rank=0: prefill sends KV cache to decode after processing the prompt.
+    # VLLM_NIXL_SIDE_CHANNEL_PORT: side-channel port for NixlConnector
+    # coordination between prefill and decode on the same node.
+    #
+    # Startup gate: the wait-for-decode init container polls decode's Dynamo
+    # system health endpoint (port 9090) until decode reports generate:ready.
+    # This endpoint only turns ready after vLLM completes its GPU memory
+    # profiling pass and locks in VRAM — the correct deterministic signal.
+    # -------------------------------------------------------------------------
+    prefill:
+      componentType: worker
+      subComponentType: prefill
+      replicas: 1
+      extraPodSpec:
+        runtimeClassName: nvidia
+        volumes:
+          - name: hf-cache
+            hostPath:
+              path: /root/.cache/huggingface
+              type: Directory
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: rack
+                      operator: In
+                      values: ["gpu"]
+        initContainers:
+          - name: wait-for-decode
+            image: curlimages/curl:8.11.1
+            command: ['sh', '-c',
+              'until curl -sf http://dynamo-gpu-decode.dynamo-demo.svc.cluster.local:9090/health;
+               do echo "waiting for decode..."; sleep 5; done']
+        mainContainer:
+          image: nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1-cuda13
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              CUDA_VISIBLE_DEVICES=0
+              VLLM_NIXL_SIDE_CHANNEL_PORT=20097
+              python3 -m dynamo.vllm
+              --model Qwen/Qwen3-0.6B
+              --enforce-eager
+              --gpu-memory-utilization 0.25
+              --max-model-len 2048
+              --kv-transfer-config '{"kv_connector":"NixlConnector","kv_role":"kv_both","kv_rank":0,"kv_parallel_size":2}'
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /opt/hf-cache
+              readOnly: true

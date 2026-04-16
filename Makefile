@@ -2,7 +2,8 @@
         download-mocker-image build-mocker-image validate-stack \
         cleanup-placeholder validate-mocker benchmark-same-rack benchmark-cross-rack \
         show-placement install-aiperf run-benchmark compare-results kind-config \
-        fix-inotify-limits apply-runtimeclass advertise-gpu-resources validate-cluster
+        fix-inotify-limits apply-runtimeclass advertise-gpu-resources validate-cluster \
+        gpu-prepull gpu-deploy gpu-validate gpu-stream gpu-status gpu-benchmark
 
 # ============================================================================
 # NCX Dynamo Demo - Makefile
@@ -31,6 +32,7 @@ DYNAMO_VERSION  := v1.0.1
 # Worker image (vLLM, cuda13 tag: 9.13 GB vs 14.93 GB SGLang; full KVBM support)
 WORKER_IMAGE   := nvcr.io/nvidia/ai-dynamo/vllm-runtime:1.0.1-cuda13
 OPERATOR_IMAGE := nvcr.io/nvidia/ai-dynamo/kubernetes-operator:1.0.1
+CURL_IMAGE     := curlimages/curl:8.11.1
 
 # Model staging — MODELS_DIR is used when generating infra/kind-config.yaml
 # Run: make kind-config   (generates infra/kind-config.yaml from template)
@@ -110,7 +112,7 @@ cluster-up: kind-config ## Create kind cluster with rack topology
 
 fix-inotify-limits: ## Fix inotify limits in all worker nodes (prevents file-watcher crashes)
 	@echo "==> Fixing inotify limits on all worker nodes..."
-	@for node in $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2 $(CLUSTER_NAME)-worker3; do \
+	@for node in $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2 $(CLUSTER_NAME)-worker3 $(CLUSTER_NAME)-worker4; do \
 		echo "  Fixing $$node"; \
 		docker exec $$node sysctl -w fs.inotify.max_user_watches=524288; \
 		docker exec $$node sysctl -w fs.inotify.max_user_instances=8192; \
@@ -178,7 +180,7 @@ prepull-operator: ## Pull Dynamo operator image into kind nodes (67 MB, fast)
 	@echo "==> Pulling Dynamo operator image on host..."
 	@docker pull $(OPERATOR_IMAGE)
 	@echo "==> Loading operator image into kind nodes..."
-	@for node in $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2 $(CLUSTER_NAME)-worker3; do \
+	@for node in $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2 $(CLUSTER_NAME)-worker3 $(CLUSTER_NAME)-worker4; do \
 		echo "  Loading into $$node"; \
 		docker save $(OPERATOR_IMAGE) | docker exec -i $$node ctr images import -; \
 	done
@@ -455,6 +457,161 @@ compare-results: ## Print side-by-side latency table from results/ (same-rack vs
 	@$(CURDIR)/.venv/bin/python3 $(CURDIR)/scripts/compare-results.py $(RESULTS_DIR)
 	@echo "================================================================"
 	@echo ""
+
+# ============================================================================
+# Phase 4: GPU Real Inference (vLLM disaggregated, rack-gpu node)
+# ============================================================================
+#
+# Prerequisites (additive to stack-install):
+#   make gpu-prepull        — one-time, slow (~9 GB image load into kind nodes)
+#   make download-model     — already done for mocker track
+#
+# GPU inference workflow:
+#   make gpu-prepull        # One-time: load vllm-runtime into kind nodes
+#   make gpu-deploy         # Deploy disaggregated DGD (Frontend + prefill + decode)
+#   make gpu-validate       # Smoke test: /health + one inference request
+#   make gpu-stream         # Streaming response (shows real token arrival)
+#   make gpu-status         # Model listing + KAI gang state
+#   make gpu-benchmark      # AIPerf benchmark against GPU frontend → results/gpu-real.json
+#                         (GPU results are compute-driven; use compare-results only
+#                          if mocker benchmarks have also been run and you want the
+#                          placement latency comparison separately)
+#
+# Startup sequencing: prefill starts with a 60s sleep to let decode complete
+# its GPU memory profiling pass before prefill begins allocation.
+# See manifests/dynamo-vllm-gpu.yaml header for the deterministic gate (init
+# container) that should replace this delay after first successful deploy.
+
+GPU_FRONTEND_SVC := dynamo-gpu-frontend
+GPU_FRONTEND_PORT := 9000
+
+gpu-prepull: check-ngc-login ## Pull vllm-runtime (~9 GB) and curl init-container images into all kind nodes
+	@echo "==> Pulling vLLM runtime image on host: $(WORKER_IMAGE)"
+	@docker pull $(WORKER_IMAGE)
+	@echo "==> Pulling curl init-container image on host: $(CURL_IMAGE)"
+	@docker pull $(CURL_IMAGE)
+	@echo "==> Loading images into kind nodes (this takes a few minutes)..."
+	@for node in $(CLUSTER_NAME)-control-plane $(CLUSTER_NAME)-worker $(CLUSTER_NAME)-worker2 $(CLUSTER_NAME)-worker3 $(CLUSTER_NAME)-worker4; do \
+		echo "  Loading vllm-runtime into $$node"; \
+		docker save $(WORKER_IMAGE) | docker exec -i $$node ctr -n k8s.io images import -; \
+		echo "  Loading curl into $$node"; \
+		docker save $(CURL_IMAGE) | docker exec -i $$node ctr -n k8s.io images import -; \
+	done
+	@echo "✓ vllm-runtime and curl pre-loaded into all nodes"
+
+gpu-deploy: ## Deploy GPU inference DGD (Frontend + disaggregated prefill + decode)
+	@echo "==> Deploying GPU inference DGD (dynamo-gpu)..."
+	@kubectl apply -f manifests/dynamo-vllm-gpu.yaml
+	@echo "==> Waiting for 3 dynamo-gpu pods Running (prefill has 60s startup delay; allow up to 10 minutes)..."
+	@for i in $$(seq 1 120); do \
+		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/name=dynamo-gpu --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
+		if [ "$$RUNNING" -eq 3 ]; then \
+			echo "✓ dynamo-gpu pods Running ($$RUNNING/3)"; \
+			break; \
+		fi; \
+		if [ "$$i" -eq 120 ]; then \
+			echo "⚠ Pods not ready after 10 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			exit 1; \
+		fi; \
+		printf "  Pods Running: $$RUNNING/3 (attempt $$i/120)\\r"; \
+		sleep 5; \
+	done
+	@echo ""
+	@echo "==> Pod placement:"
+	@kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/name=dynamo-gpu \
+		-o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase" \
+		--no-headers | while read pod node status; do \
+		  rack=$$(kubectl get node $$node -L rack --no-headers 2>/dev/null | awk '{print $$NF}'); \
+		  printf "  %-50s -> node=%-35s rack=%s\n" "$$pod" "$$node" "$$rack"; \
+		done
+	@echo ""
+	@echo "Run 'make gpu-validate' to smoke test the deployment."
+
+gpu-validate: ## Smoke test GPU inference: /health check + one inference request
+	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
+	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
+	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	echo $$! > /tmp/pf-dynamo-gpu.pid
+	@sleep 3
+	@echo "==> Health check..."
+	@curl -sf http://localhost:$(GPU_FRONTEND_PORT)/health && echo " ✓ /health OK" || { echo "✗ /health failed"; kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; exit 1; }
+	@echo "==> Inference request (What is 2+2?)..."
+	@curl -s http://localhost:$(GPU_FRONTEND_PORT)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":32}' \
+		| python3 -c "import sys,json; d=json.load(sys.stdin); print(' Response:', d['choices'][0]['message']['content'])" \
+		2>/dev/null || { echo "✗ Inference request failed (see /tmp/pf-gpu.log)"; kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; exit 1; }
+	@kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true
+	@echo "✓ GPU inference validation passed"
+
+gpu-stream: ## Streaming inference request — shows real token arrival timing
+	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
+	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	echo $$! > /tmp/pf-dynamo-gpu.pid
+	@sleep 3
+	@echo "==> Streaming response (Ctrl-C to stop):"
+	@curl -s -N http://localhost:$(GPU_FRONTEND_PORT)/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"Explain KV cache in one sentence."}],"max_tokens":64,"stream":true}'; \
+	echo ""
+	@kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true
+
+gpu-benchmark: ## AIPerf benchmark against GPU frontend; saves results/gpu-real.json
+	@echo "==> Running aiperf benchmark against GPU inference frontend..."
+	@VENV_AIPERF=$(CURDIR)/.venv/bin/aiperf; \
+	if [ ! -x "$$VENV_AIPERF" ]; then \
+		echo "ERROR: aiperf not found in .venv. Run: make install-aiperf"; \
+		exit 1; \
+	fi; \
+	mkdir -p $(RESULTS_DIR); \
+	if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi; \
+	STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
+	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi; \
+	kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	echo $$! > /tmp/pf-dynamo-gpu.pid; \
+	sleep 3; \
+	echo "==> Running benchmark (ISL=$(BENCHMARK_ISL), OSL=$(BENCHMARK_OSL), concurrency=$(BENCHMARK_CONC))..."; \
+	$$VENV_AIPERF profile $(BENCHMARK_MODEL) \
+		--url http://localhost:$(GPU_FRONTEND_PORT) \
+		--isl $(BENCHMARK_ISL) \
+		--osl $(BENCHMARK_OSL) \
+		--concurrency $(BENCHMARK_CONC) \
+		--num-requests $(BENCHMARK_REQS) \
+		--artifact-dir $(RESULTS_DIR) \
+		--profile-export-prefix gpu-real; \
+	BENCH_EXIT=$$?; \
+	kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; wait $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true; \
+	if [ $$BENCH_EXIT -ne 0 ]; then \
+		echo "ERROR: aiperf failed (exit $$BENCH_EXIT)"; exit $$BENCH_EXIT; \
+	fi; \
+	echo "✓ GPU benchmark complete → $(RESULTS_DIR)/gpu-real.json"
+
+gpu-status: ## Show model registration + KAI gang scheduling state for GPU DGD
+	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
+	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	echo $$! > /tmp/pf-dynamo-gpu.pid
+	@sleep 3
+	@echo "==> Registered models:"
+	@curl -s http://localhost:$(GPU_FRONTEND_PORT)/v1/models | python3 -m json.tool 2>/dev/null || echo "  (not available)"
+	@kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true
+	@echo ""
+	@echo "==> KAI PodGang state:"
+	@kubectl get podgang -A 2>/dev/null || echo "  (no podgangs found)"
+	@echo ""
+	@echo "==> KAI queue state:"
+	@kubectl get queue -n $(NS_WORKLOAD) 2>/dev/null || echo "  (no queues found)"
+	@echo ""
+	@echo "==> dynamo-gpu pod placement:"
+	@kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/name=dynamo-gpu \
+		-o custom-columns="POD:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase" \
+		--no-headers 2>/dev/null | while read pod node status; do \
+		  rack=$$(kubectl get node $$node -L rack --no-headers 2>/dev/null | awk '{print $$NF}'); \
+		  printf "  %-50s -> node=%-35s rack=%s\n" "$$pod" "$$node" "$$rack"; \
+		done
 
 # ============================================================================
 # Utility Targets
