@@ -71,6 +71,7 @@ ncx-dynamo-demo/
 | `scripts/setup-ngc-secret.sh` | Creates `ngc-registry` imagePullSecret. Reads `NGC_API_KEY` or `~/.ngc/apikey`. |
 | `scripts/advertise-gpu-resources.sh` | Patches `nvidia.com/gpu` capacity onto Kind worker nodes via `kubectl`. |
 | `scripts/compare-results.py` | Reads mocker results (same-rack/cross-rack) and optionally gpu-real.json; prints latency table. |
+| `scripts/gpu-sdk-example.py` | OpenAI SDK chat completion example against the GPU frontend. Run via `make gpu-sdk-example`. |
 
 ## Generated / Gitignored
 

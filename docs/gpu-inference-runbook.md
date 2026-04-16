@@ -183,25 +183,18 @@ Shows registered models (`/v1/models`), KAI PodGang state, and pod placement.
 
 ### OpenAI SDK
 
-For developer-oriented exploration:
-
-```python
-from openai import OpenAI
-
-client = OpenAI(base_url="http://localhost:9000/v1", api_key="unused")
-response = client.chat.completions.create(
-    model="Qwen/Qwen3-0.6B",
-    messages=[{"role": "user", "content": "What is disaggregated inference?"}],
-    max_tokens=128,
-)
-print(response.choices[0].message.content)
-```
-
-Requires an active port-forward in a separate terminal:
+For developer-oriented exploration, a runnable example is provided in
+`scripts/gpu-sdk-example.py`. The Makefile target handles the port-forward
+and installs the `openai` package into `.venv` if not already present:
 
 ```bash
-kubectl port-forward svc/dynamo-gpu-frontend -n dynamo-demo 9000:8000
+make gpu-sdk-example
 ```
+
+The script sets `enable_thinking=False` and `max_tokens=128`, tuned for
+the 8 GiB test environment where `max-model-len=2048` limits the context
+window. On hardware with more VRAM these constraints can be relaxed — see
+comments in `scripts/gpu-sdk-example.py`.
 
 ---
 

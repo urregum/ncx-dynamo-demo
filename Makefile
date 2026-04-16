@@ -623,6 +623,31 @@ gpu-status: ## Show model registration + KAI gang scheduling state for GPU DGD
 		  printf "  %-50s -> node=%-35s rack=%s\n" "$$pod" "$$node" "$$rack"; \
 		done
 
+gpu-sdk-example: ## Run OpenAI SDK chat completion example against GPU frontend
+	@echo "==> Checking openai package..."
+	@if ! $(CURDIR)/.venv/bin/python3 -c "import openai" 2>/dev/null; then \
+		echo "  openai not found — installing into .venv..."; \
+		if [ ! -x "$(CURDIR)/.venv/bin/pip" ]; then \
+			echo "  .venv not found — creating..."; \
+			python3 -m venv $(CURDIR)/.venv; \
+		fi; \
+		$(CURDIR)/.venv/bin/pip install --quiet openai; \
+		echo "  ✓ openai installed"; \
+	else \
+		echo "  ✓ openai already available"; \
+	fi
+	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
+	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
+	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 >/tmp/pf-gpu.log 2>&1 & \
+	echo $$! > /tmp/pf-dynamo-gpu.pid
+	@sleep 3
+	@$(CURDIR)/.venv/bin/python3 scripts/gpu-sdk-example.py; \
+	STATUS=$$?; \
+	kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true; \
+	exit $$STATUS
+
 # ============================================================================
 # Utility Targets
 # ============================================================================
