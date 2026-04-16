@@ -431,7 +431,7 @@ run-benchmark: ## Benchmark active DGD via port-forward; saves JSON to results/<
 	if [ -f /tmp/pf-dynamo-bench.pid ]; then kill $$(cat /tmp/pf-dynamo-bench.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-bench.pid; fi; \
 	STALE_PF=$$(lsof -ti tcp:8000 2>/dev/null || true); \
 	if [ -n "$$STALE_PF" ]; then kill $$STALE_PF 2>/dev/null || true; sleep 1; fi; \
-	kubectl port-forward svc/dynamo-bench-frontend -n $(NS_WORKLOAD) 8000:8000 &>/tmp/pf.log & \
+	kubectl port-forward svc/dynamo-bench-frontend -n $(NS_WORKLOAD) 8000:8000 >/tmp/pf.log 2>&1 & \
 	PF_PID=$$!; \
 	echo $$PF_PID > /tmp/pf-dynamo-bench.pid; \
 	sleep 3; \
@@ -538,11 +538,11 @@ gpu-validate: ## Smoke test GPU inference: /health check + one inference request
 	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
 	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
 	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
-	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 >/tmp/pf-gpu.log 2>&1 & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid
 	@sleep 3
 	@echo "==> Health check..."
-	@curl -sf http://localhost:$(GPU_FRONTEND_PORT)/health && echo " ✓ /health OK" || { echo "✗ /health failed"; kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; exit 1; }
+	@curl -sf http://localhost:$(GPU_FRONTEND_PORT)/health -o /dev/null && echo " ✓ /health OK" || { echo "✗ /health failed"; kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; exit 1; }
 	@echo "==> Inference request (What is 2+2?)..."
 	@curl -s http://localhost:$(GPU_FRONTEND_PORT)/v1/chat/completions \
 		-H "Content-Type: application/json" \
@@ -557,7 +557,7 @@ gpu-stream: ## Streaming inference request — shows real token arrival timing
 	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
 	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
 	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
-	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 >/tmp/pf-gpu.log 2>&1 & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid
 	@sleep 3
 	@echo "==> Streaming response (Ctrl-C to stop):"
@@ -578,7 +578,7 @@ gpu-benchmark: ## AIPerf benchmark against GPU frontend; saves results/gpu-real.
 	if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi; \
 	STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
 	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi; \
-	kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 >/tmp/pf-gpu.log 2>&1 & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid; \
 	sleep 3; \
 	echo "==> Running benchmark (ISL=$(GPU_BENCHMARK_ISL), OSL=$(GPU_BENCHMARK_OSL), concurrency=$(GPU_BENCHMARK_CONC))..."; \
@@ -602,7 +602,7 @@ gpu-status: ## Show model registration + KAI gang scheduling state for GPU DGD
 	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
 	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
 	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
-	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
+	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 >/tmp/pf-gpu.log 2>&1 & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid
 	@sleep 3
 	@echo "==> Registered models:"
