@@ -305,7 +305,7 @@ Output: `DIR/SCENARIO_NAME.json` (not nested under model slug). See the [AIPerf 
 
 ## Next Steps
 
-See [`docs/architecture.md`](architecture.md#future-extensions) for planned extensions including real GPU inference (Phase 4) and scheduling scenario demonstrations (Phase 5).
+For real token generation on a GPU, see [`docs/gpu-inference-runbook.md`](gpu-inference-runbook.md) — Track 2 is independent of this track and can be run on the same cluster. For planned extensions, see [`docs/architecture.md`](architecture.md#potential-extensions).
 
 ---
 

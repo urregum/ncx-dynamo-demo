@@ -8,5 +8,11 @@ rules:
   comments:
     min-spaces-from-content: 1
   truthy:
-    allowed-values: ["true", "false", "1", "0"]
+    allowed-values: ["true", "false"]
     check-keys: false
+  # K8s manifests use inline list items (containers: / - name:) without
+  # extra indent; yamllint's default indentation rule conflicts with this
+  # convention. Structural validity is covered by check-yaml in pre-commit.
+  indentation: disable
+  # --- document-start markers are optional in K8s manifests
+  document-start: disable

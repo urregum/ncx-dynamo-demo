@@ -32,7 +32,7 @@ The most widely recommended types for open-source are:
 
 # Caveats to Best Practices
 
-Given the small scope and timeline of the project, atomicity and PR requirements have been relaxed prior to 1.0 to allow for rapid readiness. 
+Given the small scope and timeline of the project, atomicity and PR requirements have been relaxed prior to 1.0 to allow for rapid readiness.
 See also [Development Workflow](#development-workflow) for details once that process is enforced.
 
 # Development Workflow

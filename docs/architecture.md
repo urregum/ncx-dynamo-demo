@@ -7,9 +7,9 @@ This demonstration showcases **NVIDIA Dynamo** in a local Kubernetes environment
 For the full Dynamo system architecture, see the [NVIDIA Dynamo Architecture Overview](https://docs.nvidia.com/dynamo/design-docs/overall-architecture). This demo implements the Request Plane components (Frontend / KV Router, Prefill Worker, Decode Worker) and the scheduling layer (KAI Scheduler, Grove, Dynamo Operator). The Global Planner, KV Block Manager, NIXL, and multi-cluster coordination are out of scope.
 
 **Not a production system.** The environment uses:
-- Local GPU (RTX 3070 Ti) for scheduling validation, not inference compute
+- Local GPU (RTX 3070 Ti) — used for real inference compute in Track 2; for scheduling validation only in Track 1
 - Kind cluster with containerized nodes
-- Mock Dynamo workers simulating disaggregated prefill/decode inference
+- Two demo tracks: GPU mocker (Track 1, no GPU required) and real vLLM disaggregated inference (Track 2, requires NVIDIA GPU)
 - AIPerf benchmarking to measure latency differences from placement changes
 
 ---
@@ -103,7 +103,7 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
   - Routes requests to prefill/decode workers based on KV cache overlap (`--router-mode kv`)
   - The router is not a separate pod — it is an integrated mode of the frontend process, consistent with upstream Dynamo's implementation
   - Resolves tokenizer from HF cache for KV routing logic
-  
+
 - **Prefill Worker** (Rust-based mock)
   - Simulates KV-cache production via `--disaggregation-mode prefill`
   - On completing a request, injects a real sleep delay modeling KV transfer to the decode worker:
@@ -181,7 +181,8 @@ Setup instructions are in the phase runbooks:
 
 - [Cluster Setup](cluster-runbook.md) — Kind cluster, rack topology, GPU scaffolding
 - [Stack Installation](stack-runbook.md) — KAI, Grove, Dynamo platform, NGC credentials
-- [Mocker Benchmark](mocker-benchmark-runbook.md) — Mocker deployment, AIPerf, benchmark scenarios
+- [Mocker Benchmark](mocker-benchmark-runbook.md) — Track 1: mocker deployment, AIPerf, benchmark scenarios
+- [GPU Inference](gpu-inference-runbook.md) — Track 2: real vLLM, disaggregated inference on rack-gpu node
 
 ---
 
@@ -210,10 +211,11 @@ Plus: Model name must include namespace slash (`Qwen/Qwen3-0.6B`) so Rust cache 
 - Kind nodes are containers; GPU Operator adds unnecessary complexity
 - Manual mount of nvidia-container-runtime is simpler and sufficient
 
-**Why not vLLM/real inference?**
-- Adds 9+ GB image per node, slow to deploy
-- SGLang/CUDA library dependencies complicate setup
-- GPU mocker simulates latency purely via KV transfer — sufficient for demo goal
+**Why GPU mocker for Track 1 (not vLLM)?**
+- Track 1 measures placement impact on KV transfer latency — compute fidelity adds no signal
+- 9+ GB vLLM image per node is slow to deploy for a bandwidth-measurement goal
+- The mocker parameterizes KV transfer delay directly, isolating the variable being measured
+- Real vLLM inference is Track 2 (see [`docs/gpu-inference-runbook.md`](gpu-inference-runbook.md))
 
 ### 3. Rack Topology via Labels
 **Why Kubernetes labels, not actual network config?**
@@ -241,6 +243,7 @@ Each gate confirms the architectural invariant that subsequent phases depend on 
 | Cluster | Cluster health, rack labels, GPU resources | Rack topology labels are foundational — placement scenarios fail silently without them; GPU advertisement satisfies the operator's resource requirements | `make validate-cluster` |
 | Stack | KAI + Grove + Dynamo running, placeholder gang-scheduled | Confirms gang scheduling is operational before DGD workload depends on it; the placeholder uses the same gang mechanism as real Dynamo workers | `make validate-stack` |
 | Mocker | DGD healthy, inference works, disaggregation confirmed via worker IDs | Confirms prefill and decode are separate pods with the expected KV handoff; `nvext.worker_id` in responses proves the disaggregation path is active | `make validate-mocker` |
+| GPU | `/health` returns 200, inference returns a real token response | Confirms vLLM is running, NixlConnector handoff is functional, and the disaggregated GPU topology is serving requests end-to-end | `make gpu-validate` |
 
 ---
 
@@ -266,12 +269,6 @@ Each gate confirms the architectural invariant that subsequent phases depend on 
 - Demonstrates cache block management and prefix reuse on a single GPU without requiring multi-GPU transfer paths
 - NIXL (NVIDIA Interconnect Library — the real KV transfer substrate using NVLink/RDMA) is not applicable in this environment; the mocker simulates its latency consequence only
 - Does not require changes to the current 1:1 prefill/decode topology
-
-### Real GPU Inference
-- Replace mocker image with vLLM runtime
-- Pre-stage vLLM image on nodes during cluster creation
-- Adjust KV bandwidth to match actual hardware (e.g., NVLink3 = 900 GB/s)
-- Extend AIPerf validation to check token generation quality
 
 ### Multi-Cluster Federation
 - Deploy multiple kind clusters in different network zones
@@ -307,5 +304,5 @@ Each gate confirms the architectural invariant that subsequent phases depend on 
 
 ---
 
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-04-16
 **Audience:** Demo users, documentation readers, future contributors
