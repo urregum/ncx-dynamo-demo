@@ -103,7 +103,7 @@ This topology has no bearing on a future KVBM extension, which concerns cache bl
   - Routes requests to prefill/decode workers based on KV cache overlap (`--router-mode kv`)
   - The router is not a separate pod — it is an integrated mode of the frontend process, consistent with upstream Dynamo's implementation
   - Resolves tokenizer from HF cache for KV routing logic
-  
+
 - **Prefill Worker** (Rust-based mock)
   - Simulates KV-cache production via `--disaggregation-mode prefill`
   - On completing a request, injects a real sleep delay modeling KV transfer to the decode worker:
