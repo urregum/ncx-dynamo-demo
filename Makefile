@@ -555,6 +555,8 @@ gpu-validate: ## Smoke test GPU inference: /health check + one inference request
 gpu-stream: ## Streaming inference request — shows real token arrival timing
 	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
 	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
+	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
 	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid
 	@sleep 3
@@ -598,6 +600,8 @@ gpu-benchmark: ## AIPerf benchmark against GPU frontend; saves results/gpu-real.
 gpu-status: ## Show model registration + KAI gang scheduling state for GPU DGD
 	@echo "==> Port-forwarding GPU frontend to localhost:$(GPU_FRONTEND_PORT)..."
 	@if [ -f /tmp/pf-dynamo-gpu.pid ]; then kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null || true; rm -f /tmp/pf-dynamo-gpu.pid; fi
+	@STALE=$$(lsof -ti tcp:$(GPU_FRONTEND_PORT) 2>/dev/null || true); \
+	if [ -n "$$STALE" ]; then kill $$STALE 2>/dev/null || true; sleep 1; fi
 	@kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid
 	@sleep 3
