@@ -60,6 +60,8 @@ nodes:
         containerPath: /usr/bin/nvidia-container-runtime
       - hostPath: /usr/bin/nvidia-container-runtime-hook
         containerPath: /usr/bin/nvidia-container-runtime-hook
+      - hostPath: /usr/bin/nvidia-ctk
+        containerPath: /usr/bin/nvidia-ctk
 
       # -----------------------------------------------------------------------
       # NVIDIA Management Library (NVML)

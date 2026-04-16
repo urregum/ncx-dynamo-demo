@@ -7,6 +7,11 @@ the dedicated `rack-gpu` node using NVIDIA Dynamo's disaggregated serving mode.
 mocker-benchmark track does not need to be run first — the GPU track uses a separate DGD
 on a separate node and is fully independent.
 
+`make cluster-setup` automatically runs `make setup-gpu-node` on GPU systems, which copies
+the versioned CUDA and NVML libraries into the `rack-gpu` Kind node. If you rebuild the
+cluster, run `make setup-gpu-node` again before deploying the GPU track — these libraries
+are not persisted across cluster teardown.
+
 NGC credentials must be configured — image pulls in this track (and any future tracks)
 require `nvcr.io` authentication. If you followed the stack runbook, this is already
 done. If not, see [`docs/stack-runbook.md`](stack-runbook.md) for credential setup before

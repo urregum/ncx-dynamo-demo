@@ -3,7 +3,8 @@
         cleanup-placeholder validate-mocker benchmark-same-rack benchmark-cross-rack \
         show-placement install-aiperf run-benchmark compare-results kind-config \
         fix-inotify-limits apply-runtimeclass advertise-gpu-resources validate-cluster \
-        gpu-prepull gpu-deploy gpu-validate gpu-stream gpu-status gpu-benchmark
+        gpu-prepull gpu-deploy gpu-validate gpu-stream gpu-status gpu-benchmark \
+        setup-gpu-node gpu-sdk-example install-openai
 
 # ============================================================================
 # NCX Dynamo Demo - Makefile
@@ -80,6 +81,10 @@ validate-prereqs: ## Validate system has required tools
 # ============================================================================
 
 cluster-setup: validate-prereqs cluster-up fix-inotify-limits apply-runtimeclass advertise-gpu-resources ## Create Kind cluster with rack topology + GPU scaffolding
+	@if [ -e /dev/nvidia0 ]; then \
+		echo "==> GPU detected — running setup-gpu-node..."; \
+		$(MAKE) setup-gpu-node; \
+	fi
 	@echo ""
 	@echo "==> Cluster setup complete!"
 	@echo "Cluster: $(CLUSTER_NAME)"
@@ -129,6 +134,19 @@ advertise-gpu-resources: ## Advertise nvidia.com/gpu resources on all worker nod
 	@echo "==> Advertising GPU resources via kubectl API patch..."
 	@bash scripts/advertise-gpu-resources.sh
 	@echo "✓ GPU resources advertised"
+
+setup-gpu-node: ## Copy versioned NVIDIA CDI libraries into the GPU Kind node (run once after cluster-setup)
+	@echo "==> Resolving versioned NVIDIA library paths on host..."
+	@LIBCUDA=$$(readlink -f /usr/lib/x86_64-linux-gnu/libcuda.so.1 2>/dev/null); \
+	LIBNVML=$$(readlink -f /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 2>/dev/null); \
+	if [ -z "$$LIBCUDA" ] || [ ! -f "$$LIBCUDA" ]; then echo "ERROR: cannot resolve libcuda.so.1 — is the NVIDIA driver installed?"; exit 1; fi; \
+	if [ -z "$$LIBNVML" ] || [ ! -f "$$LIBNVML" ]; then echo "ERROR: cannot resolve libnvidia-ml.so.1 — is the NVIDIA driver installed?"; exit 1; fi; \
+	echo "  libcuda:  $$LIBCUDA"; \
+	echo "  libnvml:  $$LIBNVML"; \
+	echo "==> Copying into $(CLUSTER_NAME)-worker4..."; \
+	docker cp $$LIBCUDA $(CLUSTER_NAME)-worker4:/usr/lib/x86_64-linux-gnu/; \
+	docker cp $$LIBNVML $(CLUSTER_NAME)-worker4:/usr/lib/x86_64-linux-gnu/; \
+	echo "✓ CDI library chain ready in $(CLUSTER_NAME)-worker4"
 
 cluster-down: ## Delete the kind cluster
 	@echo "==> Deleting cluster: $(CLUSTER_NAME)..."
