@@ -185,11 +185,24 @@ stack-install: validate-cluster check-ngc-login prepull-operator install-schedul
 	@helm list -A
 	@echo ""
 	@echo "Run 'make validate-stack' to verify all checks pass."
-	@echo "Next step: make mocker-deploy"
 	@echo ""
-	@echo "Optional one-time pre-mocker-deploy setup:"
-	@echo "  make install-aiperf         # install aiperf benchmark tool into .venv"
-	@echo "  make download-mocker-image  # pre-pull GPU mocker image into kind nodes (~500 MB)"
+	@echo "Demo tracks (independent — run either or both):"
+	@echo ""
+	@echo "  Track 1: Mocker benchmark (no GPU required)"
+	@echo "    make download-mocker-image  # pre-pull mocker image (~500 MB, one-time)"
+	@echo "    make install-aiperf         # install aiperf benchmark tool into .venv"
+	@echo "    make mocker-deploy          # deploy mocker DGD and run benchmark"
+	@echo ""
+	@if [ -e /dev/nvidia0 ]; then \
+		echo "  Track 2: GPU inference (NVIDIA GPU detected)"; \
+		echo "    make download-model         # cache Qwen3-0.6B locally (~1.5 GB, one-time)"; \
+		echo "    make gpu-prepull            # load vLLM runtime image into kind nodes (~9 GB)"; \
+		echo "    make gpu-deploy             # deploy disaggregated vLLM inference DGD"; \
+	else \
+		echo "  Track 2: GPU inference (requires NVIDIA GPU — not detected on this system)"; \
+		echo "    See docs/gpu-inference-runbook.md for hardware requirements"; \
+	fi
+	@echo ""
 
 validate-cluster: ## Validate cluster is ready (nodes, racks, GPU resources)
 	@./scripts/validate-cluster.sh
