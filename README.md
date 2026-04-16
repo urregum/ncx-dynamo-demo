@@ -83,7 +83,7 @@ Two required setup steps, then independent demo tracks:
 - Kind cluster (1 control plane + 3 workers)
 - Rack topology labels (`rack-01`, `rack-02`) — mirrors the node labels real cluster infrastructure applies for topology-aware placement
 - Fake GPU resource advertisement satisfies Dynamo operator requirements; no GPU is consumed by the mocker workload
-- GPU device passthrough (if a GPU is present) is reserved for a future real-inference extension
+- GPU device passthrough (if a GPU is present) powers Track 2 — real vLLM disaggregated inference on `rack-gpu`
 
 ### Scheduling Stack
 - **KAI Scheduler** — Gang scheduling, queue management, topology-aware placement
@@ -225,5 +225,5 @@ Built on open source projects (all Apache 2.0 licensed):
 
 ---
 
-**Last Updated:** 2026-04-15
-**Status:** GPU inference track added — real vLLM disaggregated inference on rack-gpu node
+**Last Updated:** 2026-04-16
+**Status:** v1.1.0 — GPU inference track complete (real vLLM disaggregated inference on rack-gpu node)
