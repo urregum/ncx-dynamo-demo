@@ -68,14 +68,16 @@ docs changes, minor for new features, major for significant capability milestone
 
 # Local Setup
 
-After cloning, install pre-commit hooks:
+After cloning, create a virtual environment, install dependencies, and activate the hooks:
 
 ```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 pre-commit install
 pre-commit install --hook-type commit-msg
 ```
 
-The first command installs file-content hooks (YAML linting, whitespace). The second installs the commit-msg stage hooks. Both are required — omitting the second means conventional-pre-commit and gitlint will not run locally.
+`pre-commit` is included in `requirements.txt`. The two install commands activate the hooks in your local git checkout — the first installs file-content hooks (YAML linting, whitespace), the second installs the commit-msg stage hooks. Both are required — omitting the second means conventional-pre-commit and gitlint will not run locally.
 
 # Automation Tools
 * conventional-pre-commit: Enforces Conventional Commits subject format at commit time.

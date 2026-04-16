@@ -8,9 +8,10 @@
 # Or use the Makefile target: make install-aiperf
 #
 # Versions pinned from tested environment (2026-04-09).
-# Pre-commit also uses yamllint — install separately:
-#   pip install pre-commit && pre-commit install
+# After installing, activate the hooks:
+#   pre-commit install && pre-commit install --hook-type commit-msg
 
 aiperf==0.7.0
 huggingface_hub==1.9.2
 hf_transfer==0.1.9
+pre-commit==4.5.1
