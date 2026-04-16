@@ -276,16 +276,16 @@ deploy-workload: ## Deploy placeholder DynamoInferenceService workload (nginx, v
 	@kubectl apply -f manifests/dynamo-placeholder-workload.yaml
 	@echo "==> Waiting for gang scheduling (up to 2 minutes)..."
 	@for i in $$(seq 1 40); do \
-		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -ge 3 ]; then \
-			echo "✓ Workload gang-scheduled ($$RUNNING pods Running)"; \
+		READY=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/part-of=dynamo-demo --no-headers 2>/dev/null | awk '$$2~/^[0-9]+\/[0-9]+$$/{split($$2,a,"/"); if(a[1]==a[2] && a[1]>0) c++} END{print c+0}'); \
+		if [ "$$READY" -ge 3 ]; then \
+			echo "✓ Workload gang-scheduled ($$READY pods Ready)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 40 ]; then \
 			echo "⚠ Pods not ready after 80s — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
-		printf "  Pods Running: $$RUNNING/3 (attempt $$i/40)\\r"; \
+		printf "  Pods Ready: $$READY/3 (attempt $$i/40)\\r"; \
 		sleep 2; \
 	done
 
@@ -368,18 +368,18 @@ benchmark-same-rack: ## Deploy same-rack DGD (prefill+decode both on rack-01, 40
 	@echo "==> Deploying same-rack scenario..."
 	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-same-rack.yaml
-	@echo "==> Waiting for exactly 3 dynamo-bench pods Running (up to 3 minutes)..."
+	@echo "==> Waiting for exactly 3 dynamo-bench pods Ready (up to 3 minutes)..."
 	@for i in $$(seq 1 60); do \
-		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -eq 3 ]; then \
-			echo "✓ dynamo-bench pods Running (3 pods)"; \
+		READY=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/part-of=dynamo-bench --no-headers 2>/dev/null | awk '$$2~/^[0-9]+\/[0-9]+$$/{split($$2,a,"/"); if(a[1]==a[2] && a[1]>0) c++} END{print c+0}'); \
+		if [ "$$READY" -eq 3 ]; then \
+			echo "✓ dynamo-bench pods Ready (3/3)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 60 ]; then \
-			echo "⚠ Pods not stable after 3 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			echo "⚠ Pods not ready after 3 minutes ($$READY/3 Ready) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
-		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
+		printf "  Pods Ready: $$READY/3 (attempt $$i/60)\\r"; \
 		sleep 3; \
 	done
 	@echo ""
@@ -390,18 +390,18 @@ benchmark-cross-rack: ## Redeploy DGD cross-rack (prefill rack-01, decode rack-0
 	@echo "==> Switching to cross-rack scenario..."
 	@kubectl delete dynamographdeployment dynamo-bench -n $(NS_WORKLOAD) --ignore-not-found
 	@kubectl apply -f manifests/dynamo-mock-workers-cross-rack.yaml
-	@echo "==> Waiting for exactly 3 dynamo-bench pods Running (old pods terminate, new ones start, up to 3 minutes)..."
+	@echo "==> Waiting for exactly 3 dynamo-bench pods Ready (old pods terminate, new ones start, up to 3 minutes)..."
 	@for i in $$(seq 1 60); do \
-		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -eq 3 ]; then \
-			echo "✓ dynamo-bench pods Running (3 pods)"; \
+		READY=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/part-of=dynamo-bench --no-headers 2>/dev/null | awk '$$2~/^[0-9]+\/[0-9]+$$/{split($$2,a,"/"); if(a[1]==a[2] && a[1]>0) c++} END{print c+0}'); \
+		if [ "$$READY" -eq 3 ]; then \
+			echo "✓ dynamo-bench pods Ready (3/3)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 60 ]; then \
-			echo "⚠ Pods not stable after 3 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			echo "⚠ Pods not ready after 3 minutes ($$READY/3 Ready) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
-		printf "  Pods Running: $$RUNNING/3 (attempt $$i/60)\\r"; \
+		printf "  Pods Ready: $$READY/3 (attempt $$i/60)\\r"; \
 		sleep 3; \
 	done
 	@echo ""
@@ -514,11 +514,6 @@ compare-results: ## Print side-by-side latency table from results/ (same-rack vs
 #                          if mocker benchmarks have also been run and you want the
 #                          placement latency comparison separately)
 #
-# Startup sequencing: prefill starts with a 60s sleep to let decode complete
-# its GPU memory profiling pass before prefill begins allocation.
-# See manifests/dynamo-vllm-gpu.yaml header for the deterministic gate (init
-# container) that should replace this delay after first successful deploy.
-
 GPU_FRONTEND_SVC := dynamo-gpu-frontend
 GPU_FRONTEND_PORT := 9000
 
@@ -539,18 +534,18 @@ gpu-prepull: check-ngc-login ## Pull vllm-runtime (~9 GB) and curl init-containe
 gpu-deploy: ## Deploy GPU inference DGD (Frontend + disaggregated prefill + decode)
 	@echo "==> Deploying GPU inference DGD (dynamo-gpu)..."
 	@kubectl apply -f manifests/dynamo-vllm-gpu.yaml
-	@echo "==> Waiting for 3 dynamo-gpu pods Running (prefill has 60s startup delay; allow up to 10 minutes)..."
+	@echo "==> Waiting for 3 dynamo-gpu pods Ready (vLLM profiling pass ~5 min; allow up to 10 minutes)..."
 	@for i in $$(seq 1 120); do \
-		RUNNING=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/name=dynamo-gpu --no-headers 2>/dev/null | grep "Running" | wc -l | tr -d ' '); \
-		if [ "$$RUNNING" -eq 3 ]; then \
-			echo "✓ dynamo-gpu pods Running ($$RUNNING/3)"; \
+		READY=$$(kubectl get pods -n $(NS_WORKLOAD) -l app.kubernetes.io/part-of=dynamo-gpu --no-headers 2>/dev/null | awk '$$2~/^[0-9]+\/[0-9]+$$/{split($$2,a,"/"); if(a[1]==a[2] && a[1]>0) c++} END{print c+0}'); \
+		if [ "$$READY" -eq 3 ]; then \
+			echo "✓ dynamo-gpu pods Ready (3/3)"; \
 			break; \
 		fi; \
 		if [ "$$i" -eq 120 ]; then \
-			echo "⚠ Pods not ready after 10 minutes ($$RUNNING Running) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
+			echo "⚠ Pods not ready after 10 minutes ($$READY/3 Ready) — check: kubectl get pods -n $(NS_WORKLOAD)"; \
 			exit 1; \
 		fi; \
-		printf "  Pods Running: $$RUNNING/3 (attempt $$i/120)\\r"; \
+		printf "  Pods Ready: $$READY/3 (attempt $$i/120)\\r"; \
 		sleep 5; \
 	done
 	@echo ""
