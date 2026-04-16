@@ -126,12 +126,16 @@ Runs two checks:
 1. `GET /health` — expects HTTP 200
 2. `POST /v1/chat/completions` with `{"content": "What is 2+2?"}` — prints the response
 
+The request sets `chat_template_kwargs: {"enable_thinking": false}` to suppress Qwen3's
+chain-of-thought reasoning tokens. Without this, thinking tokens consume the token budget
+before the actual answer is emitted.
+
 Sample output:
 ```
 ==> Health check...
  ✓ /health OK
 ==> Inference request (What is 2+2?)...
- Response: 2 + 2 = 4
+ Response: 2 + 2 = 4.
 ✓ GPU inference validation passed
 ```
 

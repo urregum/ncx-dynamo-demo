@@ -546,7 +546,7 @@ gpu-validate: ## Smoke test GPU inference: /health check + one inference request
 	@echo "==> Inference request (What is 2+2?)..."
 	@curl -s http://localhost:$(GPU_FRONTEND_PORT)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":32}' \
+		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"What is 2+2?"}],"max_tokens":64,"chat_template_kwargs":{"enable_thinking":false}}' \
 		| python3 -c "import sys,json; d=json.load(sys.stdin); print(' Response:', d['choices'][0]['message']['content'])" \
 		2>/dev/null || { echo "✗ Inference request failed (see /tmp/pf-gpu.log)"; kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; exit 1; }
 	@kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true
@@ -563,7 +563,7 @@ gpu-stream: ## Streaming inference request — shows real token arrival timing
 	@echo "==> Streaming response (Ctrl-C to stop):"
 	@curl -s -N http://localhost:$(GPU_FRONTEND_PORT)/v1/chat/completions \
 		-H "Content-Type: application/json" \
-		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"Explain KV cache in one sentence."}],"max_tokens":64,"stream":true}'; \
+		-d '{"model":"Qwen/Qwen3-0.6B","messages":[{"role":"user","content":"Explain KV cache in one sentence."}],"max_tokens":64,"stream":true,"chat_template_kwargs":{"enable_thinking":false}}'; \
 	echo ""
 	@kill $$(cat /tmp/pf-dynamo-gpu.pid) 2>/dev/null; rm -f /tmp/pf-dynamo-gpu.pid; true
 
