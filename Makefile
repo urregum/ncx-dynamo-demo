@@ -390,13 +390,19 @@ show-placement: ## Show which rack each dynamo-bench pod landed on
 		  printf "  %-50s -> node=%-35s rack=%s\n" "$$pod" "$$node" "$$rack"; \
 		done
 
-# BENCHMARK_ISL: input sequence length tokens (4096 = wide KV gap between scenarios)
-# BENCHMARK_OSL: output tokens (small, keeps test fast; we care about TTFT not throughput)
+# Mocker benchmark: ISL=4096 stresses KV transfer bandwidth gap between rack topologies.
 BENCHMARK_ISL    := 4096
 BENCHMARK_OSL    := 32
 BENCHMARK_CONC   := 4
 BENCHMARK_REQS   := 20
 BENCHMARK_MODEL  := Qwen/Qwen3-0.6B
+
+# GPU benchmark: ISL=128 fits within max-model-len=2048 (8 GiB VRAM constraint at gmu=0.25).
+# Measures real compute TTFT on the RTX 3070 Ti; not directly comparable to mocker results.
+GPU_BENCHMARK_ISL   := 128
+GPU_BENCHMARK_OSL   := 32
+GPU_BENCHMARK_CONC  := 4
+GPU_BENCHMARK_REQS  := 20
 
 install-aiperf: ## Install aiperf into .venv (creates .venv if absent)
 	@echo "==> Installing aiperf into .venv..."
@@ -573,13 +579,13 @@ gpu-benchmark: ## AIPerf benchmark against GPU frontend; saves results/gpu-real.
 	kubectl port-forward svc/$(GPU_FRONTEND_SVC) -n $(NS_WORKLOAD) $(GPU_FRONTEND_PORT):8000 &>/tmp/pf-gpu.log & \
 	echo $$! > /tmp/pf-dynamo-gpu.pid; \
 	sleep 3; \
-	echo "==> Running benchmark (ISL=$(BENCHMARK_ISL), OSL=$(BENCHMARK_OSL), concurrency=$(BENCHMARK_CONC))..."; \
+	echo "==> Running benchmark (ISL=$(GPU_BENCHMARK_ISL), OSL=$(GPU_BENCHMARK_OSL), concurrency=$(GPU_BENCHMARK_CONC))..."; \
 	$$VENV_AIPERF profile $(BENCHMARK_MODEL) \
 		--url http://localhost:$(GPU_FRONTEND_PORT) \
-		--isl $(BENCHMARK_ISL) \
-		--osl $(BENCHMARK_OSL) \
-		--concurrency $(BENCHMARK_CONC) \
-		--num-requests $(BENCHMARK_REQS) \
+		--isl $(GPU_BENCHMARK_ISL) \
+		--osl $(GPU_BENCHMARK_OSL) \
+		--concurrency $(GPU_BENCHMARK_CONC) \
+		--num-requests $(GPU_BENCHMARK_REQS) \
 		--artifact-dir $(RESULTS_DIR) \
 		--profile-export-prefix gpu-real; \
 	BENCH_EXIT=$$?; \

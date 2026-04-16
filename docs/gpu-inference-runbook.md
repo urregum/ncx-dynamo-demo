@@ -139,8 +139,12 @@ Sample output:
 
 ## Step 4 — Benchmark (Optional)
 
-AIPerf runs against the GPU frontend using the same parameters as the mocker benchmark
-(ISL=4096, OSL=32, concurrency=4). Results are saved to `results/gpu-real.json`.
+AIPerf runs against the GPU frontend using hardware-appropriate parameters
+(ISL=128, OSL=32, concurrency=4, 20 requests). Results are saved to `results/gpu-real.json`.
+
+ISL=128 is required because `--max-model-len 2048` caps the context window on 8 GiB hardware;
+the mocker benchmark uses ISL=4096 to stress KV transfer bandwidth — those parameters are not
+comparable and would exceed the context limit here.
 
 ```bash
 make gpu-benchmark
